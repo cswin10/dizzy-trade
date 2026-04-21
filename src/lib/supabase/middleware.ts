@@ -4,7 +4,14 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { clientEnv } from '@/lib/env'
 import type { Database } from '@/types/database'
 
-export async function updateSession(request: NextRequest) {
+export type UpdateSessionResult = {
+  response: NextResponse
+  userId: string | null
+}
+
+export async function updateSession(
+  request: NextRequest,
+): Promise<UpdateSessionResult> {
   let response = NextResponse.next({ request })
 
   const supabase = createServerClient<Database>(
@@ -35,8 +42,12 @@ export async function updateSession(request: NextRequest) {
   )
 
   // Touching auth.getUser() here is what refreshes the session cookie. It
-  // must run on every request so the client always sees an up-to-date session.
-  await supabase.auth.getUser()
+  // must run on every request so the client always sees an up-to-date
+  // session. The returned user is also what the surrounding middleware uses
+  // to gate route access.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
 
-  return response
+  return { response, userId: user?.id ?? null }
 }
