@@ -1,13 +1,21 @@
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import {
+  createServerClient as createSSRClient,
+  type CookieOptions,
+} from '@supabase/ssr'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 
 import { clientEnv } from '@/lib/env'
 import type { Database } from '@/types/database'
 
-export function createClient() {
+// @supabase/ssr pins an internal import path that @supabase/supabase-js no
+// longer ships, which makes its Schema generic collapse to `never` and
+// breaks typed `.from()` and `.rpc()` calls. Cast to the supabase-js
+// client shape, which is what the ssr helper returns at runtime anyway.
+export function createClient(): SupabaseClient<Database> {
   const cookieStore = cookies()
 
-  return createServerClient<Database>(
+  const client = createSSRClient<Database>(
     clientEnv.NEXT_PUBLIC_SUPABASE_URL,
     clientEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     {
@@ -34,4 +42,6 @@ export function createClient() {
       },
     },
   )
+
+  return client as unknown as SupabaseClient<Database>
 }
