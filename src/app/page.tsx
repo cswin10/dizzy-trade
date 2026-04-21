@@ -1,9 +1,12 @@
-export default function HomePage() {
-  return (
-    <main className="flex min-h-screen items-center justify-center">
-      <h1 className="font-sans text-5xl font-semibold text-accent">
-        Dizzy Trade
-      </h1>
-    </main>
-  )
+import { redirect } from 'next/navigation'
+
+import { createClient } from '@/lib/supabase/server'
+
+export default async function HomePage() {
+  const supabase = createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  redirect(user ? '/dashboard' : '/sign-in')
 }
