@@ -25,7 +25,7 @@ export function Panel({
       )}
     >
       {title || headerRight ? (
-        <header className="flex items-center justify-between border-b border-light/10 px-5 py-3">
+        <header className="flex items-center justify-between border-b border-light/10 px-5 py-2.5">
           {title ? (
             <h2 className="text-[11px] font-medium uppercase tracking-widest text-light/60">
               {title}
@@ -38,7 +38,7 @@ export function Panel({
           ) : null}
         </header>
       ) : null}
-      <div className={twMerge('p-6', bodyClassName)}>{children}</div>
+      <div className={twMerge('px-5 py-4', bodyClassName)}>{children}</div>
     </section>
   )
 }

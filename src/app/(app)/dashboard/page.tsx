@@ -14,6 +14,22 @@ function shortenTenant(name: string): string {
   return name.length > 12 ? `${name.slice(0, 12)}…` : name
 }
 
+function ReadoutLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="text-[11px] uppercase tracking-widest text-light/40">
+      {children}
+    </span>
+  )
+}
+
+function EmptyReadout({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-center text-[11px] uppercase tracking-widest text-light/40">
+      - {children} -
+    </p>
+  )
+}
+
 export default async function DashboardPage() {
   const supabase = createClient()
   const {
@@ -60,24 +76,28 @@ export default async function DashboardPage() {
         }
       />
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
         <Panel title="Open positions">
-          <p className="py-6 text-center text-xs text-light/40">
-            No open positions
-          </p>
+          <div className="flex flex-col gap-2">
+            <ReadoutLabel>Count</ReadoutLabel>
+            <span className="text-2xl font-medium text-light">0</span>
+            <EmptyReadout>No positions</EmptyReadout>
+          </div>
         </Panel>
 
         <Panel title="Today PnL">
-          <div className="flex flex-col gap-2 py-4">
+          <div className="flex flex-col gap-2">
+            <ReadoutLabel>PnL · 24h</ReadoutLabel>
             <span className="text-2xl font-medium text-accent">0.0000</span>
             <span className="text-[11px] uppercase tracking-widest text-light/40">
-              24h · 0.0000
+              Realised · 0.0000
             </span>
           </div>
         </Panel>
 
         <Panel title="Rules">
-          <div className="flex flex-col gap-3 py-4">
+          <div className="flex flex-col gap-2">
+            <ReadoutLabel>Status</ReadoutLabel>
             <div className="flex items-center gap-2 text-[11px] uppercase tracking-widest text-light/60">
               <StatusDot tone="active" />
               <span>0 active</span>
@@ -90,28 +110,32 @@ export default async function DashboardPage() {
         </Panel>
 
         <Panel title="Watchlist">
-          <p className="py-6 text-center text-xs text-light/40">Empty</p>
+          <div className="flex flex-col gap-2">
+            <ReadoutLabel>Tracked</ReadoutLabel>
+            <span className="text-2xl font-medium text-light">0</span>
+            <EmptyReadout>Empty</EmptyReadout>
+          </div>
         </Panel>
       </div>
 
-      <div className="mt-4">
+      <div className="mt-3">
         <Panel title="Recent trades">
-          <p className="py-10 text-center text-xs text-light/40">
-            No trades logged
-          </p>
+          <div className="flex min-h-[120px] items-center justify-center">
+            <EmptyReadout>Trade log empty</EmptyReadout>
+          </div>
         </Panel>
       </div>
 
-      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
         <Panel title="Narrative heat">
-          <p className="py-10 text-center text-xs text-light/40">
-            Not yet wired
-          </p>
+          <div className="flex min-h-[120px] items-center justify-center">
+            <EmptyReadout>Awaiting data</EmptyReadout>
+          </div>
         </Panel>
         <Panel title="Claude digest">
-          <p className="py-10 text-center text-xs text-light/40">
-            Not yet wired
-          </p>
+          <div className="flex min-h-[120px] items-center justify-center">
+            <EmptyReadout>Awaiting data</EmptyReadout>
+          </div>
         </Panel>
       </div>
     </PageContainer>
