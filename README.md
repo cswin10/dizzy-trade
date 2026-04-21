@@ -21,6 +21,11 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 Environment variables are managed entirely through the Vercel dashboard across the development, preview, and production environments. Vercel is the single source of truth. Do not commit a `.env`, `.env.local`, or example file to the repository.
 
+**The app validates its environment at startup and will refuse to boot if any required variable is missing or malformed.** Configure every variable below in Vercel before running the app locally or deploying.
+
+- Managing env vars per environment: <https://vercel.com/docs/environment-variables>
+- Pulling values into a local `.env.local`: <https://vercel.com/docs/cli/env>
+
 To pull the current values into a local `.env.local`, run:
 
 ```bash
@@ -58,6 +63,7 @@ src/
     ui/             Primitive UI building blocks.
     shared/         Shared composite components used across features.
   lib/
+    env.ts          Zod-validated env object. Never import `env` from client code.
     supabase/       Supabase client factories and helpers.
     claude/         Anthropic Claude client wrappers and helpers.
     validations/    Zod schemas shared across the app.
