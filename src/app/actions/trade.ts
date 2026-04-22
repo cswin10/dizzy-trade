@@ -11,12 +11,7 @@ import {
   logTradeSchema,
 } from '@/lib/validations/trade'
 
-export type TradeActionState =
-  | { status: 'idle' }
-  | { status: 'error'; message: string }
-  | { status: 'success' }
-
-const idle: TradeActionState = { status: 'idle' }
+import type { TradeActionState } from './trade-types'
 
 function firstMessage(errors: Record<string, string[] | undefined>): string {
   for (const key of Object.keys(errors)) {
@@ -223,5 +218,3 @@ export async function deleteTradeAction(
   revalidateAll()
   return { status: 'success' }
 }
-
-export const initialTradeActionState = idle
