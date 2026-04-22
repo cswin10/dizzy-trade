@@ -25,8 +25,11 @@ export async function searchAssets(query: string): Promise<AssetResult[]> {
   } = await supabase.auth.getUser()
   if (!user) return []
 
-  const symbolPattern = `${trimmed}%`
-  const namePattern = `%${trimmed}%`
+  // PostgREST's `.or()` filter string uses `*` as the ilike wildcard, not
+  // `%`. Using `%` here silently returns zero rows because the literal
+  // percent survives URL decoding and never matches a regular symbol.
+  const symbolPattern = `${trimmed}*`
+  const namePattern = `*${trimmed}*`
 
   const { data, error } = await supabase
     .from('assets_reference')
@@ -39,6 +42,8 @@ export async function searchAssets(query: string): Promise<AssetResult[]> {
     console.error('[searchAssets] failed:', error.message)
     return []
   }
+
+  console.log(`[searchAssets] query="${trimmed}" matched=${data?.length ?? 0}`)
 
   return (data ?? []) as AssetResult[]
 }
