@@ -1,11 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 
 import { twMerge } from 'tailwind-merge'
 
+type TabId = 'trades' | 'narratives' | 'digest'
+
 type Tab = {
-  id: 'trades' | 'narratives' | 'digest'
+  id: TabId
   label: string
   empty: string
 }
@@ -16,9 +18,22 @@ const TABS: readonly Tab[] = [
   { id: 'digest', label: 'Digest', empty: 'First digest generates tomorrow' },
 ] as const
 
-export function ActivityTabs() {
-  const [active, setActive] = useState<Tab['id']>('trades')
+export type ActivityTabsProps = {
+  trades?: ReactNode
+  narratives?: ReactNode
+  digest?: ReactNode
+}
+
+export function ActivityTabs({
+  trades,
+  narratives,
+  digest,
+}: ActivityTabsProps) {
+  const [active, setActive] = useState<TabId>('trades')
   const current = TABS.find((t) => t.id === active) ?? TABS[0]!
+
+  const slot =
+    active === 'trades' ? trades : active === 'narratives' ? narratives : digest
 
   return (
     <div>
@@ -51,8 +66,14 @@ export function ActivityTabs() {
           )
         })}
       </div>
-      <div role="tabpanel" className="flex min-h-[140px] justify-center pt-10">
-        <p className="text-sm text-white/35">{current.empty}</p>
+      <div role="tabpanel" className="min-h-[140px] pt-4">
+        {slot ? (
+          slot
+        ) : (
+          <p className="pt-6 text-center text-sm text-white/35">
+            {current.empty}
+          </p>
+        )}
       </div>
     </div>
   )

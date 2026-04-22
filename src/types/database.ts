@@ -85,6 +85,90 @@ export type Database = {
         }
         Relationships: []
       }
+      trades: {
+        Row: {
+          id: string
+          tenant_id: string
+          user_id: string
+          asset_symbol: string
+          coingecko_id: string | null
+          direction: 'long' | 'short'
+          entry_price: number
+          entry_size: number
+          leverage: number | null
+          venue: string
+          narrative_tag: string | null
+          setup_type: string | null
+          thesis: string | null
+          entry_at: string
+          exit_price: number | null
+          exit_size: number | null
+          exit_at: string | null
+          pnl: number | null
+          outcome: 'win' | 'loss' | 'breakeven' | 'open'
+          lesson: string | null
+          source: 'manual' | 'hyperliquid' | 'coinbase' | 'onchain'
+          external_id: string | null
+          risk_amount_gbp: number | null
+          created_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          id?: string
+          tenant_id: string
+          user_id: string
+          asset_symbol: string
+          coingecko_id?: string | null
+          direction: 'long' | 'short'
+          entry_price: number
+          entry_size: number
+          leverage?: number | null
+          venue: string
+          narrative_tag?: string | null
+          setup_type?: string | null
+          thesis?: string | null
+          entry_at?: string
+          exit_price?: number | null
+          exit_size?: number | null
+          exit_at?: string | null
+          pnl?: number | null
+          outcome?: 'win' | 'loss' | 'breakeven' | 'open'
+          lesson?: string | null
+          source?: 'manual' | 'hyperliquid' | 'coinbase' | 'onchain'
+          external_id?: string | null
+          risk_amount_gbp?: number | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          id?: string
+          tenant_id?: string
+          user_id?: string
+          asset_symbol?: string
+          coingecko_id?: string | null
+          direction?: 'long' | 'short'
+          entry_price?: number
+          entry_size?: number
+          leverage?: number | null
+          venue?: string
+          narrative_tag?: string | null
+          setup_type?: string | null
+          thesis?: string | null
+          entry_at?: string
+          exit_price?: number | null
+          exit_size?: number | null
+          exit_at?: string | null
+          pnl?: number | null
+          outcome?: 'win' | 'loss' | 'breakeven' | 'open'
+          lesson?: string | null
+          source?: 'manual' | 'hyperliquid' | 'coinbase' | 'onchain'
+          external_id?: string | null
+          risk_amount_gbp?: number | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: Record<string, never>
     Functions: {
