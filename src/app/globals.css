@@ -1,3 +1,31 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  html {
+    background: #0a0b0e;
+    color-scheme: dark;
+  }
+
+  body {
+    position: relative;
+    background: transparent;
+  }
+
+  /* Ambient accent glow anchored to the top-right of the viewport. Sits
+     behind all content so it reads as atmosphere rather than a UI element. */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: -1;
+    background: radial-gradient(
+      900px circle at 88% 6%,
+      rgba(59, 130, 255, 0.14),
+      rgba(59, 130, 255, 0.04) 35%,
+      transparent 65%
+    );
+  }
+}

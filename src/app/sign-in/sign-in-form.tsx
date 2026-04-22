@@ -16,8 +16,8 @@ function SubmitButton() {
     <Button type="submit" disabled={pending}>
       {pending ? (
         <>
-          <StatusDot pulse />
-          <span>Signing in…</span>
+          <StatusDot tone="accent" pulse />
+          <span>Signing in</span>
         </>
       ) : (
         <span>Sign in</span>
@@ -47,15 +47,18 @@ export function SignInForm() {
         required
       />
       {state.status === 'error' ? (
-        <p className="text-xs uppercase tracking-widest text-danger">
-          <span className="font-semibold">Error ·</span>{' '}
-          <span className="normal-case tracking-normal">{state.message}</span>
-        </p>
+        <div className="rounded-md border border-negative/30 bg-negative/10 px-3 py-2 text-sm text-negative">
+          <span className="font-medium">Error</span>
+          <span className="text-negative/80"> · {state.message}</span>
+        </div>
       ) : null}
       <SubmitButton />
-      <div className="flex items-center justify-center gap-2 text-[11px] uppercase tracking-widest text-light/40">
+      <div className="flex items-center justify-center gap-1.5 text-sm text-white/55">
         <span>No account?</span>
-        <Link href="/sign-up" className="text-accent hover:text-accent-hover">
+        <Link
+          href="/sign-up"
+          className="text-accent transition-colors duration-200 hover:text-accent/80"
+        >
           Create one
         </Link>
       </div>

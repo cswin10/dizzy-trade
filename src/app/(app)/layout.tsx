@@ -16,7 +16,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   if (!user) redirect('/sign-in')
 
   return (
-    <div className="flex min-h-screen flex-col bg-navy">
+    <div className="flex min-h-screen flex-col">
       <TopNav userEmail={user.email ?? ''} />
       <div className="flex-1">{children}</div>
     </div>

@@ -5,6 +5,7 @@ import { twMerge } from 'tailwind-merge'
 export type PanelProps = {
   title?: string
   headerRight?: ReactNode
+  interactive?: boolean
   className?: string
   bodyClassName?: string
   children?: ReactNode
@@ -13,6 +14,7 @@ export type PanelProps = {
 export function Panel({
   title,
   headerRight,
+  interactive = false,
   className,
   bodyClassName,
   children,
@@ -20,14 +22,18 @@ export function Panel({
   return (
     <section
       className={twMerge(
-        'flex flex-col rounded-sm border border-light/10 bg-navy-deep',
+        'rounded-lg border border-white/[0.06] bg-surface bg-panel-lit',
+        'transition-colors duration-200',
+        interactive &&
+          'cursor-pointer hover:border-white/10 hover:bg-surface-2',
+        !interactive && 'hover:border-white/10 hover:bg-surface-2',
         className,
       )}
     >
       {title || headerRight ? (
-        <header className="flex items-center justify-between border-b border-light/10 px-5 py-2.5">
+        <header className="flex items-center justify-between px-5 pb-0 pt-4">
           {title ? (
-            <h2 className="text-[11px] font-medium uppercase tracking-widest text-light/60">
+            <h2 className="text-[11px] font-medium uppercase tracking-wider text-white/55">
               {title}
             </h2>
           ) : (
