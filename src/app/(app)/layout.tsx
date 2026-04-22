@@ -18,7 +18,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-screen flex-col">
       <TopNav userEmail={user.email ?? ''} />
-      <div className="flex-1">{children}</div>
+      <div className="app-canvas flex-1">{children}</div>
     </div>
   )
 }

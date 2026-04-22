@@ -29,3 +29,54 @@
     );
   }
 }
+
+@layer components {
+  /* Subtle dot texture on the main content canvas. Scoped to the app
+     shell body so the top nav, which has its own translucent surface,
+     stays clean. */
+  .app-canvas {
+    background-image: radial-gradient(
+      circle at 1px 1px,
+      rgba(255, 255, 255, 0.04) 1px,
+      transparent 0
+    );
+    background-size: 24px 24px;
+  }
+}
+
+@layer utilities {
+  /* Soft breathing pulse for the wordmark brand dot. Opacity and glow
+     oscillate together on a 2s cycle. */
+  @keyframes breathe {
+    0%,
+    100% {
+      opacity: 0.6;
+      box-shadow: 0 0 6px 0 rgba(59, 130, 255, 0.3);
+    }
+    50% {
+      opacity: 1;
+      box-shadow: 0 0 10px 2px rgba(59, 130, 255, 0.5);
+    }
+  }
+
+  .animate-breathe {
+    animation: breathe 2s ease-in-out infinite;
+  }
+
+  /* Live-data indicator. The solid dot is paired with a ring element that
+     expands outwards from scale 1 to 2.5 whilst fading to transparent. */
+  @keyframes pulse-ring {
+    0% {
+      transform: scale(1);
+      opacity: 0.6;
+    }
+    100% {
+      transform: scale(2.5);
+      opacity: 0;
+    }
+  }
+
+  .animate-pulse-ring {
+    animation: pulse-ring 2s ease-out infinite;
+  }
+}

@@ -57,7 +57,7 @@ export function TopNav({ userEmail }: TopNavProps) {
         >
           <span
             aria-hidden="true"
-            className="h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_10px_rgba(59,130,255,0.6)]"
+            className="animate-breathe h-1.5 w-1.5 rounded-full bg-accent"
           />
           <span className="text-base font-medium tracking-tight text-white">
             Dizzy Trade
