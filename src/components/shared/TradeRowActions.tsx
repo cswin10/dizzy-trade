@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useFormState, useFormStatus } from 'react-dom'
 
 import { deleteTradeAction } from '@/app/actions/trade'
@@ -19,6 +20,8 @@ import { useLogTradePanel } from './LogTradePanelContext'
 type Props = {
   trade: Trade
 }
+
+const MENU_WIDTH = 176
 
 function MoreIcon() {
   return (
@@ -54,25 +57,46 @@ export function TradeRowActions({ trade }: Props) {
   const { open: openPanel } = useLogTradePanel()
   const { openEditLesson } = useEditLessonDialog()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(
+    null,
+  )
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const wrapperRef = useRef<HTMLDivElement | null>(null)
+  const [mounted, setMounted] = useState(false)
+  const buttonRef = useRef<HTMLButtonElement | null>(null)
+  const menuRef = useRef<HTMLDivElement | null>(null)
 
   const isOpen = trade.outcome === 'open'
 
   useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  // Position the menu relative to the viewport and close on
+  // outside-click, scroll, resize, or Escape. Portaling to body avoids
+  // the parent table's overflow clip.
+  useEffect(() => {
     if (!menuOpen) return
     function onPointer(event: MouseEvent) {
-      if (!wrapperRef.current) return
-      if (!wrapperRef.current.contains(event.target as Node)) setMenuOpen(false)
+      const target = event.target as Node
+      if (buttonRef.current?.contains(target)) return
+      if (menuRef.current?.contains(target)) return
+      setMenuOpen(false)
     }
     function onKey(event: KeyboardEvent) {
       if (event.key === 'Escape') setMenuOpen(false)
     }
+    function onDismiss() {
+      setMenuOpen(false)
+    }
     window.addEventListener('mousedown', onPointer)
     window.addEventListener('keydown', onKey)
+    window.addEventListener('scroll', onDismiss, true)
+    window.addEventListener('resize', onDismiss)
     return () => {
       window.removeEventListener('mousedown', onPointer)
       window.removeEventListener('keydown', onKey)
+      window.removeEventListener('scroll', onDismiss, true)
+      window.removeEventListener('resize', onDismiss)
     }
   }, [menuOpen])
 
@@ -85,17 +109,27 @@ export function TradeRowActions({ trade }: Props) {
     if (deleteState.status === 'success') setConfirmDelete(false)
   }, [deleteState])
 
+  const openMenu = () => {
+    if (!buttonRef.current) return
+    const rect = buttonRef.current.getBoundingClientRect()
+    // Anchor the right edge of the menu to the right edge of the button.
+    const left = Math.max(8, rect.right - MENU_WIDTH)
+    setMenuPos({ top: rect.bottom + 4, left })
+    setMenuOpen(true)
+  }
+
   return (
-    <div
-      ref={wrapperRef}
-      className="relative"
-      onClick={(e) => e.stopPropagation()}
-    >
+    <div className="relative" onClick={(e) => e.stopPropagation()}>
       <button
+        ref={buttonRef}
         type="button"
         onClick={(e) => {
           e.stopPropagation()
-          setMenuOpen((p) => !p)
+          if (menuOpen) {
+            setMenuOpen(false)
+          } else {
+            openMenu()
+          }
         }}
         aria-haspopup="menu"
         aria-expanded={menuOpen}
@@ -103,61 +137,73 @@ export function TradeRowActions({ trade }: Props) {
       >
         <MoreIcon />
       </button>
-      {menuOpen ? (
-        <div
-          role="menu"
-          className="absolute right-0 top-full z-40 mt-1 min-w-[160px] rounded-md border border-white/[0.06] bg-surface bg-panel-lit p-1"
-        >
-          {isOpen ? (
-            <button
-              role="menuitem"
-              type="button"
-              onClick={() => {
-                setMenuOpen(false)
-                openPanel({
-                  mode: 'close',
-                  trade_id: trade.id,
-                  asset_symbol: trade.asset_symbol,
-                  direction: trade.direction,
-                  entry_price: trade.entry_price,
-                  entry_size: trade.entry_size,
-                  venue: trade.venue,
-                })
+
+      {mounted && menuOpen && menuPos
+        ? createPortal(
+            <div
+              ref={menuRef}
+              role="menu"
+              style={{
+                position: 'fixed',
+                top: menuPos.top,
+                left: menuPos.left,
+                width: MENU_WIDTH,
               }}
-              className="block w-full rounded-md px-3 py-2 text-left text-sm text-white/70 transition-colors duration-200 hover:bg-surface-2 hover:text-white"
+              className="z-[55] rounded-md border border-white/[0.06] bg-surface bg-panel-lit p-1 shadow-xl"
+              onClick={(e) => e.stopPropagation()}
             >
-              Close trade
-            </button>
-          ) : (
-            <button
-              role="menuitem"
-              type="button"
-              onClick={() => {
-                setMenuOpen(false)
-                openEditLesson({
-                  trade_id: trade.id,
-                  asset_symbol: trade.asset_symbol,
-                  lesson: trade.lesson,
-                })
-              }}
-              className="block w-full rounded-md px-3 py-2 text-left text-sm text-white/70 transition-colors duration-200 hover:bg-surface-2 hover:text-white"
-            >
-              Edit lesson
-            </button>
-          )}
-          <button
-            role="menuitem"
-            type="button"
-            onClick={() => {
-              setMenuOpen(false)
-              setConfirmDelete(true)
-            }}
-            className="block w-full rounded-md px-3 py-2 text-left text-sm text-negative/90 transition-colors duration-200 hover:bg-surface-2 hover:text-negative"
-          >
-            Delete
-          </button>
-        </div>
-      ) : null}
+              {isOpen ? (
+                <button
+                  role="menuitem"
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    openPanel({
+                      mode: 'close',
+                      trade_id: trade.id,
+                      asset_symbol: trade.asset_symbol,
+                      direction: trade.direction,
+                      entry_price: trade.entry_price,
+                      entry_size: trade.entry_size,
+                      venue: trade.venue,
+                    })
+                  }}
+                  className="block w-full rounded-md px-3 py-2 text-left text-sm text-white/70 transition-colors duration-200 hover:bg-surface-2 hover:text-white"
+                >
+                  Close trade
+                </button>
+              ) : (
+                <button
+                  role="menuitem"
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    openEditLesson({
+                      trade_id: trade.id,
+                      asset_symbol: trade.asset_symbol,
+                      lesson: trade.lesson,
+                    })
+                  }}
+                  className="block w-full rounded-md px-3 py-2 text-left text-sm text-white/70 transition-colors duration-200 hover:bg-surface-2 hover:text-white"
+                >
+                  Edit lesson
+                </button>
+              )}
+              <button
+                role="menuitem"
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false)
+                  setConfirmDelete(true)
+                }}
+                className="block w-full rounded-md px-3 py-2 text-left text-sm text-negative/90 transition-colors duration-200 hover:bg-surface-2 hover:text-negative"
+              >
+                Delete
+              </button>
+            </div>,
+            document.body,
+          )
+        : null}
 
       <Dialog
         open={confirmDelete}

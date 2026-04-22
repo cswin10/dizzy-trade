@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export type AssetResult = {
   coingecko_id: string
@@ -10,36 +11,49 @@ export type AssetResult = {
 }
 
 const MAX_RESULTS = 20
+const POPULAR_LIMIT = 12
 
-// Server-side asset search. RLS is off for assets_reference (public
-// reference data), so any authenticated caller can query. We still use
-// the user-scoped server client so that an unauthenticated request would
-// fail cleanly.
-//
-// Uses two separate `.ilike()` queries in parallel and merges the result
-// client-side. An earlier attempt used `.or('symbol.ilike.x,name.ilike.y')`
-// but PostgREST's filter-string grammar is finicky about wildcards inside
-// OR expressions (`%` vs `*` depending on version), and silently returned
-// zero rows under the current Supabase version. Two direct `.ilike()`
-// calls avoid that minefield entirely.
-export async function searchAssets(query: string): Promise<AssetResult[]> {
-  const trimmed = query.trim()
-  if (trimmed.length === 0) return []
-
+// Auth gate: asset queries are only for signed-in users. The actual read
+// goes through the service client so any quirk in role grants or PostgREST
+// OR-string parsing can't cause the picker to silently return zero rows.
+// assets_reference is declared public reference data with no RLS, so there
+// is no tenant filtering to lose.
+async function requireUser(): Promise<boolean> {
   const supabase = createClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()
-  if (!user) return []
+  return Boolean(user)
+}
+
+function sortByRank(a: AssetResult, b: AssetResult): number {
+  const ar = a.market_cap_rank
+  const br = b.market_cap_rank
+  if (ar === null && br === null) return 0
+  if (ar === null) return 1
+  if (br === null) return -1
+  return ar - br
+}
+
+// Searches by symbol prefix and name substring in parallel and merges
+// the results client-side. Two direct `.ilike()` calls are used because
+// PostgREST's filter-string grammar around wildcards inside `.or()` is
+// brittle across versions and previously returned zero rows here.
+export async function searchAssets(query: string): Promise<AssetResult[]> {
+  const trimmed = query.trim()
+  if (trimmed.length === 0) return []
+  if (!(await requireUser())) return []
+
+  const service = createServiceClient()
 
   const [symbolMatches, nameMatches] = await Promise.all([
-    supabase
+    service
       .from('assets_reference')
       .select('coingecko_id, symbol, name, market_cap_rank')
       .ilike('symbol', `${trimmed}%`)
       .order('market_cap_rank', { ascending: true, nullsFirst: false })
       .limit(MAX_RESULTS),
-    supabase
+    service
       .from('assets_reference')
       .select('coingecko_id, symbol, name, market_cap_rank')
       .ilike('name', `%${trimmed}%`)
@@ -73,20 +87,35 @@ export async function searchAssets(query: string): Promise<AssetResult[]> {
     merged.push(row as AssetResult)
   }
 
-  merged.sort((a, b) => {
-    const ar = a.market_cap_rank
-    const br = b.market_cap_rank
-    if (ar === null && br === null) return 0
-    if (ar === null) return 1
-    if (br === null) return -1
-    return ar - br
-  })
+  merged.sort(sortByRank)
 
   const limited = merged.slice(0, MAX_RESULTS)
   console.log(
     `[searchAssets] query="${trimmed}" symbol=${symbolMatches.data?.length ?? 0} name=${nameMatches.data?.length ?? 0} merged=${limited.length}`,
   )
   return limited
+}
+
+// Top-ranked assets used as suggestions when the picker has focus but the
+// user has not typed anything yet. Same permissions story as searchAssets:
+// auth-gated, read via service client.
+export async function popularAssets(): Promise<AssetResult[]> {
+  if (!(await requireUser())) return []
+
+  const service = createServiceClient()
+  const { data, error } = await service
+    .from('assets_reference')
+    .select('coingecko_id, symbol, name, market_cap_rank')
+    .not('market_cap_rank', 'is', null)
+    .order('market_cap_rank', { ascending: true })
+    .limit(POPULAR_LIMIT)
+
+  if (error) {
+    console.error('[popularAssets] failed:', error.message)
+    return []
+  }
+
+  return (data ?? []) as AssetResult[]
 }
 
 export type PriceResult = { price: number } | { error: string }

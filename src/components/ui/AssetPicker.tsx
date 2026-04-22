@@ -11,7 +11,11 @@ import {
 
 import { twMerge } from 'tailwind-merge'
 
-import { searchAssets, type AssetResult } from '@/app/actions/assets'
+import {
+  popularAssets,
+  searchAssets,
+  type AssetResult,
+} from '@/app/actions/assets'
 
 const DEBOUNCE_MS = 150
 
@@ -37,6 +41,7 @@ export function AssetPicker({
   const [query, setQuery] = useState(initialSymbol)
   const [coingeckoId, setCoingeckoId] = useState(initialCoingeckoId)
   const [results, setResults] = useState<AssetResult[]>([])
+  const [suggestions, setSuggestions] = useState<AssetResult[]>([])
   const [open, setOpen] = useState(false)
   const [highlight, setHighlight] = useState(0)
   const [loading, setLoading] = useState(false)
@@ -45,6 +50,14 @@ export function AssetPicker({
   const inputRef = useRef<HTMLInputElement | null>(null)
   const latestQueryRef = useRef(query)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const suggestionsLoadedRef = useRef(false)
+
+  const loadSuggestions = useCallback(async () => {
+    if (suggestionsLoadedRef.current) return
+    suggestionsLoadedRef.current = true
+    const top = await popularAssets()
+    setSuggestions(top)
+  }, [])
 
   const runSearch = useCallback(async (value: string) => {
     latestQueryRef.current = value
@@ -99,11 +112,20 @@ export function AssetPicker({
     [onAssetSelected],
   )
 
+  // Which list is currently on screen drives both keyboard navigation and
+  // the rendered rows: results when the user has typed, suggestions when
+  // the input is focused but empty.
+  const activeList = query.trim().length > 0 ? results : suggestions
+  const showSuggestions = query.trim().length === 0 && suggestions.length > 0
+  const showNoMatches =
+    !loading && results.length === 0 && query.trim().length > 0
+  const showDropdown = open
+
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'ArrowDown') {
       event.preventDefault()
       if (!open) setOpen(true)
-      setHighlight((i) => Math.min(i + 1, results.length - 1))
+      setHighlight((i) => Math.min(i + 1, Math.max(activeList.length - 1, 0)))
       return
     }
     if (event.key === 'ArrowUp') {
@@ -112,9 +134,9 @@ export function AssetPicker({
       return
     }
     if (event.key === 'Enter') {
-      if (open && results[highlight]) {
+      if (open && activeList[highlight]) {
         event.preventDefault()
-        handleSelect(results[highlight]!)
+        handleSelect(activeList[highlight]!)
       }
       return
     }
@@ -124,11 +146,6 @@ export function AssetPicker({
   }
 
   const inputId = useMemo(() => name ?? 'asset-picker', [name])
-  // Keep the dropdown open whenever the input has content and focus. If
-  // the search turned up nothing we show a "No matches" row rather than
-  // collapsing the panel, otherwise the UI flickers between visible and
-  // hidden whilst the user keeps typing.
-  const showDropdown = open && query.trim().length > 0
 
   return (
     <div ref={wrapperRef} className="flex flex-col gap-2">
@@ -150,10 +167,12 @@ export function AssetPicker({
             setQuery(value)
             setCoingeckoId('')
             setOpen(true)
+            setHighlight(0)
             scheduleSearch(value)
           }}
           onFocus={() => {
-            if (query.trim().length > 0) setOpen(true)
+            setOpen(true)
+            void loadSuggestions()
           }}
           onKeyDown={handleKeyDown}
           placeholder="Search by symbol or name"
@@ -168,12 +187,17 @@ export function AssetPicker({
         {showDropdown ? (
           <ul
             role="listbox"
-            className="absolute left-0 right-0 top-full z-20 mt-1 max-h-72 overflow-y-auto rounded-md border border-white/[0.06] bg-surface bg-panel-lit p-1 shadow-xl"
+            className="absolute left-0 right-0 top-full z-30 mt-1 max-h-72 overflow-y-auto rounded-md border border-white/[0.06] bg-surface bg-panel-lit p-1 shadow-xl"
           >
+            {showSuggestions ? (
+              <li className="px-3 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wider text-white/35">
+                Popular
+              </li>
+            ) : null}
             {loading && results.length === 0 ? (
               <li className="px-3 py-2 text-sm text-white/45">Searching...</li>
             ) : null}
-            {results.map((asset, index) => {
+            {activeList.map((asset, index) => {
               const active = index === highlight
               return (
                 <li key={asset.coingecko_id}>
@@ -201,8 +225,16 @@ export function AssetPicker({
                 </li>
               )
             })}
-            {!loading && results.length === 0 && query.trim().length > 0 ? (
+            {showNoMatches ? (
               <li className="px-3 py-2 text-sm text-white/45">No matches</li>
+            ) : null}
+            {!showSuggestions &&
+            !showNoMatches &&
+            activeList.length === 0 &&
+            !loading ? (
+              <li className="px-3 py-2 text-sm text-white/45">
+                Start typing to search
+              </li>
             ) : null}
           </ul>
         ) : null}
