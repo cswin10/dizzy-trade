@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 
 import { twMerge } from 'tailwind-merge'
 
@@ -23,6 +24,13 @@ export function Dialog({
   footer,
   className,
 }: DialogProps) {
+  // Mount a client-side flag so SSR never tries to portal to a body that
+  // does not exist yet.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
   useEffect(() => {
     if (!open) return
     function onKey(event: KeyboardEvent) {
@@ -36,14 +44,14 @@ export function Dialog({
     }
   }, [open, onClose])
 
-  if (!open) return null
+  if (!open || !mounted) return null
 
-  return (
+  const content = (
     <div
       role="dialog"
       aria-modal="true"
       aria-label={title}
-      className="fixed inset-0 z-50 flex items-center justify-center"
+      className="fixed inset-0 z-[60] flex items-center justify-center p-4"
     >
       <button
         type="button"
@@ -74,4 +82,8 @@ export function Dialog({
       </div>
     </div>
   )
+
+  // Portal to body so the dialog escapes every containing stacking
+  // context and overflow clip in the ancestor tree.
+  return createPortal(content, document.body)
 }
