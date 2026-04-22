@@ -22,8 +22,12 @@ const config: Config = {
         sans: ['var(--font-inter)', 'system-ui', 'sans-serif'],
       },
       backgroundImage: {
+        // Two stacked gradients. The radial sits on top and gives every
+        // panel a faint accent-blue glow in the upper-left, as if lit by
+        // a blue light source off-screen. The linear underneath fakes the
+        // classic top-lit surface highlight.
         'panel-lit':
-          'linear-gradient(to bottom, rgba(255, 255, 255, 0.02), transparent 40%)',
+          'radial-gradient(ellipse at 20% 20%, rgba(59, 130, 255, 0.04), transparent 60%), linear-gradient(to bottom, rgba(255, 255, 255, 0.02), transparent 40%)',
       },
     },
   },

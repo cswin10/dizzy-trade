@@ -86,9 +86,9 @@ export default async function DashboardPage() {
           variant="hero"
           className="col-span-12 md:col-span-6 md:row-span-2"
         >
-          <div className="flex h-full flex-col justify-between gap-6">
+          <div className="flex flex-col gap-5">
             <div className="flex items-center">
-              <span className="text-6xl font-medium leading-none tracking-tight text-accent">
+              <span className="text-6xl font-medium leading-none tracking-tight text-[#4C8FFF] [text-shadow:0_0_24px_rgba(76,143,255,0.4)]">
                 0.00
               </span>
               <LiveIndicator />
@@ -100,10 +100,10 @@ export default async function DashboardPage() {
               <span aria-hidden="true" className="h-3 w-px bg-white/10" />
               <span>Fees · 0.00</span>
             </div>
-            <div className="relative h-16 w-full">
+            <div className="relative h-10 w-full">
               <div className="absolute inset-x-0 top-1/2 h-px bg-white/10" />
-              <span className="absolute bottom-0 left-0 text-[10px] uppercase tracking-wider text-white/25">
-                Sparkline pending
+              <span className="absolute bottom-0 left-0 text-[10px] text-white/25">
+                sparkline pending
               </span>
             </div>
           </div>
@@ -142,18 +142,17 @@ export default async function DashboardPage() {
           variant="compact"
           className="col-span-12 md:col-span-6"
         >
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center gap-6">
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-8">
               <div className="flex flex-col gap-1">
                 <MetricLabel>Active</MetricLabel>
-                <span className="text-3xl font-medium tracking-tight text-white/90">
+                <span className="text-2xl font-medium tracking-tight text-white/90">
                   0
                 </span>
               </div>
-              <span aria-hidden="true" className="h-8 w-px bg-white/10" />
               <div className="flex flex-col gap-1">
                 <MetricLabel>Violations</MetricLabel>
-                <span className="text-3xl font-medium tracking-tight text-white/70">
+                <span className="text-2xl font-medium tracking-tight text-white/70">
                   0
                 </span>
               </div>
