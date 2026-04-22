@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { type ReactNode } from 'react'
 
+import { LogTradePanelProvider } from '@/components/shared/LogTradePanelContext'
 import { TopNav } from '@/components/shared/TopNav'
 import { createClient } from '@/lib/supabase/server'
 
@@ -16,9 +17,11 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   if (!user) redirect('/sign-in')
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <TopNav userEmail={user.email ?? ''} />
-      <div className="app-canvas flex-1">{children}</div>
-    </div>
+    <LogTradePanelProvider>
+      <div className="flex min-h-screen flex-col">
+        <TopNav userEmail={user.email ?? ''} />
+        <div className="app-canvas flex-1">{children}</div>
+      </div>
+    </LogTradePanelProvider>
   )
 }

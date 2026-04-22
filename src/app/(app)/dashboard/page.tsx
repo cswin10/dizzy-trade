@@ -1,11 +1,16 @@
 import { redirect } from 'next/navigation'
 
 import { ActivityTabs } from '@/components/shared/ActivityTabs'
+import { LogTradeButton } from '@/components/shared/LogTradeButton'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { TradeListRealtime } from '@/components/shared/TradeListRealtime'
 import { Panel } from '@/components/ui/Panel'
 import { StatusDot } from '@/components/ui/StatusDot'
 import { createClient } from '@/lib/supabase/server'
+import { formatPnl, type Trade } from '@/lib/trade-helpers'
+
+import { twMerge } from 'tailwind-merge'
 
 export const metadata = {
   title: 'Dashboard · Dizzy Trade',
@@ -35,6 +40,16 @@ function LiveIndicator() {
   )
 }
 
+function pnlValueClass(value: number): string {
+  if (value > 0) {
+    return 'text-positive [text-shadow:0_0_24px_rgba(74,222,128,0.4)]'
+  }
+  if (value < 0) {
+    return 'text-negative [text-shadow:0_0_24px_rgba(248,113,113,0.4)]'
+  }
+  return 'text-[#4C8FFF] [text-shadow:0_0_24px_rgba(76,143,255,0.4)]'
+}
+
 export default async function DashboardPage() {
   const supabase = createClient()
   const {
@@ -47,7 +62,7 @@ export default async function DashboardPage() {
     .select('tenant_id')
     .eq('user_id', user.id)
     .limit(1)
-  const tenantId = memberships?.[0]?.tenant_id
+  const tenantId = memberships?.[0]?.tenant_id ?? ''
 
   let tenantName = ''
   if (tenantId) {
@@ -59,6 +74,32 @@ export default async function DashboardPage() {
     tenantName = tenants?.[0]?.name ?? ''
   }
 
+  // Open positions: distinct venues used as the secondary stat.
+  const { data: openTradeRows } = await supabase
+    .from('trades')
+    .select('id, venue')
+    .eq('outcome', 'open')
+  const openCount = openTradeRows?.length ?? 0
+  const openVenueCount = new Set(
+    (openTradeRows ?? []).map((t) => t.venue).filter(Boolean),
+  ).size
+
+  // 24h realised PnL: trades that closed in the last 24 hours, summing pnl.
+  const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  const { data: closed24h } = await supabase
+    .from('trades')
+    .select('pnl')
+    .gte('exit_at', since24h)
+    .in('outcome', ['win', 'loss', 'breakeven'])
+  const pnl24h = (closed24h ?? []).reduce((acc, row) => acc + (row.pnl ?? 0), 0)
+
+  // Recent trades (last 10) for the Activity panel Trades tab.
+  const { data: recentTrades } = await supabase
+    .from('trades')
+    .select('*')
+    .order('entry_at', { ascending: false })
+    .limit(10)
+
   return (
     <PageContainer>
       <PageHeader
@@ -66,6 +107,7 @@ export default async function DashboardPage() {
         subtitle={`Signed in as ${user.email ?? 'unknown'}`}
         rightSlot={
           <>
+            <LogTradeButton />
             <span className="inline-flex items-center gap-2">
               <StatusDot tone="positive" />
               <span className="text-sm text-accent">Live</span>
@@ -88,13 +130,18 @@ export default async function DashboardPage() {
         >
           <div className="flex flex-col gap-5">
             <div className="flex items-center">
-              <span className="text-6xl font-medium leading-none tracking-tight text-[#4C8FFF] [text-shadow:0_0_24px_rgba(76,143,255,0.4)]">
-                0.00
+              <span
+                className={twMerge(
+                  'text-6xl font-medium leading-none tracking-tight',
+                  pnlValueClass(pnl24h),
+                )}
+              >
+                {formatPnl(pnl24h)}
               </span>
               <LiveIndicator />
             </div>
             <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-white/45">
-              <span>Realised · 0.00</span>
+              <span>Realised · {formatPnl(pnl24h)}</span>
               <span aria-hidden="true" className="h-3 w-px bg-white/10" />
               <span>Unrealised · 0.00</span>
               <span aria-hidden="true" className="h-3 w-px bg-white/10" />
@@ -117,9 +164,11 @@ export default async function DashboardPage() {
           <div className="flex flex-col gap-1.5">
             <MetricLabel>Count</MetricLabel>
             <span className="text-3xl font-medium tracking-tight text-white/90">
-              0
+              {openCount}
             </span>
-            <span className="text-xs text-white/45">Across 0 venues</span>
+            <span className="text-xs text-white/45">
+              Across {openVenueCount} venue{openVenueCount === 1 ? '' : 's'}
+            </span>
           </div>
         </Panel>
 
@@ -164,7 +213,16 @@ export default async function DashboardPage() {
 
       <div className="mt-4">
         <Panel title="Activity">
-          <ActivityTabs />
+          <ActivityTabs
+            trades={
+              <TradeListRealtime
+                initialTrades={(recentTrades ?? []) as Trade[]}
+                tenantId={tenantId}
+                variant="compact"
+                limit={10}
+              />
+            }
+          />
         </Panel>
       </div>
     </PageContainer>

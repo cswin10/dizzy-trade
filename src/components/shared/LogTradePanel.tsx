@@ -1,0 +1,504 @@
+'use client'
+
+import { useEffect, useMemo, useState } from 'react'
+import { useFormState, useFormStatus } from 'react-dom'
+
+import { twMerge } from 'tailwind-merge'
+
+import {
+  closeTradeAction,
+  initialTradeActionState,
+  logTradeAction,
+  type TradeActionState,
+} from '@/app/actions/trade'
+import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
+import { PillToggle } from '@/components/ui/PillToggle'
+import { StatusDot } from '@/components/ui/StatusDot'
+import { Textarea } from '@/components/ui/Textarea'
+import {
+  NARRATIVE_TAGS,
+  SETUP_TYPES,
+  VENUE_SUGGESTIONS,
+  type NarrativeTag,
+  type SetupType,
+} from '@/lib/constants/trade'
+
+export type LogTradePanelMode = 'create' | 'close'
+
+type Prefill = {
+  trade_id?: string
+  asset_symbol?: string
+  direction?: 'long' | 'short'
+  entry_price?: number
+  entry_size?: number
+  venue?: string
+}
+
+type Direction = 'long' | 'short'
+
+export type LogTradePanelProps = {
+  open: boolean
+  mode: LogTradePanelMode
+  prefill?: Prefill
+  onClose: () => void
+}
+
+function localNowString(): string {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <h3 className="text-[11px] font-medium uppercase tracking-wider text-white/55">
+      {children}
+    </h3>
+  )
+}
+
+function ErrorBlock({ message }: { message: string }) {
+  return (
+    <div className="rounded-md border border-negative/30 bg-negative/10 px-3 py-2 text-sm text-negative">
+      <span className="font-medium">Error</span>
+      <span className="text-negative/80"> · {message}</span>
+    </div>
+  )
+}
+
+function CloseButton({ onClose }: { onClose: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClose}
+      aria-label="Close panel"
+      className="text-white/45 transition-colors duration-200 hover:text-white"
+    >
+      <svg viewBox="0 0 16 16" className="h-4 w-4">
+        <path
+          d="M3 3 L13 13 M13 3 L3 13"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+        />
+      </svg>
+    </button>
+  )
+}
+
+function SubmitLabel({
+  busyLabel,
+  idleLabel,
+}: {
+  busyLabel: string
+  idleLabel: string
+}) {
+  const { pending } = useFormStatus()
+  return (
+    <Button type="submit" disabled={pending} className="w-auto px-5">
+      {pending ? (
+        <>
+          <StatusDot tone="accent" pulse />
+          <span>{busyLabel}</span>
+        </>
+      ) : (
+        <span>{idleLabel}</span>
+      )}
+    </Button>
+  )
+}
+
+function ScreenshotPlaceholder() {
+  return (
+    <div className="mb-4 flex h-20 items-center justify-center rounded-md border border-dashed border-white/10 px-4 text-center text-xs text-white/35">
+      Screenshot autofill coming soon
+    </div>
+  )
+}
+
+function VenueInput({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (v: string) => void
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <Input
+        label="Venue"
+        name="venue"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Where did you trade?"
+        required
+      />
+      <div className="flex flex-wrap gap-2">
+        {VENUE_SUGGESTIONS.map((suggestion) => (
+          <button
+            key={suggestion}
+            type="button"
+            onClick={() => onChange(suggestion)}
+            className={twMerge(
+              'rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors duration-200',
+              value === suggestion
+                ? 'border-accent bg-accent/15 text-white'
+                : 'border-white/10 bg-transparent text-white/55 hover:border-white/20 hover:text-white',
+            )}
+          >
+            {suggestion}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function CreateTradeForm({ onSuccess }: { onSuccess: () => void }) {
+  const [state, formAction] = useFormState<TradeActionState, FormData>(
+    logTradeAction,
+    initialTradeActionState,
+  )
+
+  const [direction, setDirection] = useState<Direction>('long')
+  const [narrative, setNarrative] = useState<NarrativeTag | undefined>(
+    undefined,
+  )
+  const [setup, setSetup] = useState<SetupType | undefined>(undefined)
+  const [venue, setVenue] = useState('')
+  const [entrySize, setEntrySize] = useState('')
+  const [exitOpen, setExitOpen] = useState(false)
+  const [exitFilled, setExitFilled] = useState(false)
+  const defaultEntryAt = useMemo(localNowString, [])
+
+  useEffect(() => {
+    if (state.status === 'success') onSuccess()
+  }, [state, onSuccess])
+
+  return (
+    <form action={formAction} className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex-1 space-y-7 overflow-y-auto px-6 py-5">
+        <ScreenshotPlaceholder />
+
+        <section className="space-y-4">
+          <SectionTitle>Entry</SectionTitle>
+          <Input
+            label="Asset symbol"
+            name="asset_symbol"
+            placeholder="e.g. BTC"
+            maxLength={20}
+            required
+          />
+          <PillToggle<Direction>
+            label="Direction"
+            name="direction"
+            value={direction}
+            onChange={setDirection}
+            options={[
+              { value: 'long', label: 'Long' },
+              { value: 'short', label: 'Short' },
+            ]}
+            required
+          />
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="Entry price"
+              name="entry_price"
+              type="number"
+              step="any"
+              min="0"
+              required
+            />
+            <Input
+              label="Entry size"
+              name="entry_size"
+              type="number"
+              step="any"
+              min="0"
+              value={entrySize}
+              onChange={(e) => setEntrySize(e.target.value)}
+              required
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="Leverage"
+              name="leverage"
+              type="number"
+              step="any"
+              min="0"
+              defaultValue={1}
+            />
+            <Input
+              label="Risk (£)"
+              name="risk_amount_gbp"
+              type="number"
+              step="any"
+              min="0"
+              placeholder="Optional"
+            />
+          </div>
+          <p className="-mt-2 text-xs text-white/35">
+            How much you were willing to lose
+          </p>
+          <VenueInput value={venue} onChange={setVenue} />
+          <Input
+            label="Entry at"
+            name="entry_at"
+            type="datetime-local"
+            defaultValue={defaultEntryAt}
+            required
+          />
+        </section>
+
+        <section className="space-y-4">
+          <SectionTitle>Context</SectionTitle>
+          <PillToggle<NarrativeTag>
+            label="Narrative"
+            name="narrative_tag"
+            value={narrative}
+            onChange={setNarrative}
+            options={NARRATIVE_TAGS}
+            required
+          />
+          <PillToggle<SetupType>
+            label="Setup"
+            name="setup_type"
+            value={setup}
+            onChange={setSetup}
+            options={SETUP_TYPES}
+          />
+          <Textarea
+            label="Thesis"
+            name="thesis"
+            rows={4}
+            placeholder="Why are you taking this trade?"
+            maxLength={2000}
+          />
+        </section>
+
+        <section className="space-y-4">
+          <SectionTitle>Exit (optional)</SectionTitle>
+          <label className="flex items-center gap-3 text-sm text-white/70">
+            <input
+              type="checkbox"
+              checked={exitOpen}
+              onChange={(e) => setExitOpen(e.target.checked)}
+              className="h-4 w-4 rounded border border-white/20 bg-transparent accent-accent"
+            />
+            <span>Mark as closed trade</span>
+          </label>
+          {exitOpen ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <Input
+                  label="Exit price"
+                  name="exit_price"
+                  type="number"
+                  step="any"
+                  min="0"
+                  onChange={(e) => setExitFilled(e.target.value !== '')}
+                  required={exitOpen}
+                />
+                <Input
+                  label="Exit size"
+                  name="exit_size"
+                  type="number"
+                  step="any"
+                  min="0"
+                  defaultValue={entrySize}
+                  required={exitOpen}
+                />
+              </div>
+              <Input
+                label="Exit at"
+                name="exit_at"
+                type="datetime-local"
+                defaultValue={defaultEntryAt}
+                required={exitOpen}
+              />
+              <Textarea
+                label="Lesson"
+                name="lesson"
+                rows={3}
+                placeholder="What did you learn from this trade?"
+              />
+            </div>
+          ) : null}
+        </section>
+
+        {state.status === 'error' ? (
+          <ErrorBlock message={state.message} />
+        ) : null}
+      </div>
+
+      <footer className="flex items-center justify-end gap-3 border-t border-white/[0.06] bg-surface px-6 py-4">
+        <Button
+          type="button"
+          variant="ghost"
+          className="w-auto px-4"
+          onClick={onSuccess}
+        >
+          Cancel
+        </Button>
+        <SubmitLabel
+          busyLabel={exitOpen && exitFilled ? 'Logging' : 'Logging'}
+          idleLabel={exitOpen && exitFilled ? 'Log closed trade' : 'Log trade'}
+        />
+      </footer>
+    </form>
+  )
+}
+
+function CloseTradeForm({
+  prefill,
+  onSuccess,
+}: {
+  prefill: Prefill
+  onSuccess: () => void
+}) {
+  const [state, formAction] = useFormState<TradeActionState, FormData>(
+    closeTradeAction,
+    initialTradeActionState,
+  )
+
+  const defaultExitAt = useMemo(localNowString, [])
+
+  useEffect(() => {
+    if (state.status === 'success') onSuccess()
+  }, [state, onSuccess])
+
+  if (!prefill.trade_id) return null
+
+  return (
+    <form action={formAction} className="flex flex-1 flex-col overflow-hidden">
+      <input type="hidden" name="trade_id" value={prefill.trade_id} />
+      <div className="flex-1 space-y-6 overflow-y-auto px-6 py-5">
+        <div className="rounded-md border border-white/[0.06] bg-surface-2 px-4 py-3">
+          <div className="flex items-center justify-between text-sm">
+            <span className="font-medium text-white">
+              {prefill.asset_symbol ?? '—'}
+            </span>
+            <span
+              className={twMerge(
+                'rounded px-2 py-0.5 text-xs font-medium',
+                prefill.direction === 'short'
+                  ? 'bg-negative/15 text-negative'
+                  : 'bg-positive/15 text-positive',
+              )}
+            >
+              {prefill.direction === 'short' ? 'Short' : 'Long'}
+            </span>
+          </div>
+          <div className="mt-2 flex items-center gap-4 text-xs text-white/55">
+            <span>Entry · {prefill.entry_price ?? '—'}</span>
+            <span>Size · {prefill.entry_size ?? '—'}</span>
+            {prefill.venue ? <span>Venue · {prefill.venue}</span> : null}
+          </div>
+        </div>
+
+        <section className="space-y-4">
+          <SectionTitle>Exit</SectionTitle>
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="Exit price"
+              name="exit_price"
+              type="number"
+              step="any"
+              min="0"
+              required
+            />
+            <Input
+              label="Exit size"
+              name="exit_size"
+              type="number"
+              step="any"
+              min="0"
+              defaultValue={prefill.entry_size ?? ''}
+              required
+            />
+          </div>
+          <Input
+            label="Exit at"
+            name="exit_at"
+            type="datetime-local"
+            defaultValue={defaultExitAt}
+            required
+          />
+          <Textarea
+            label="Lesson"
+            name="lesson"
+            rows={3}
+            placeholder="What did you learn from this trade?"
+          />
+        </section>
+
+        {state.status === 'error' ? (
+          <ErrorBlock message={state.message} />
+        ) : null}
+      </div>
+
+      <footer className="flex items-center justify-end gap-3 border-t border-white/[0.06] bg-surface px-6 py-4">
+        <Button
+          type="button"
+          variant="ghost"
+          className="w-auto px-4"
+          onClick={onSuccess}
+        >
+          Cancel
+        </Button>
+        <SubmitLabel busyLabel="Closing" idleLabel="Log closed trade" />
+      </footer>
+    </form>
+  )
+}
+
+export function LogTradePanel({
+  open,
+  mode,
+  prefill,
+  onClose,
+}: LogTradePanelProps) {
+  useEffect(() => {
+    if (!open) return
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [open])
+
+  if (!open) return null
+
+  return (
+    <div className="fixed inset-0 z-50" role="dialog" aria-modal="true">
+      <button
+        type="button"
+        aria-label="Close panel"
+        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+        onClick={onClose}
+      />
+      <div className="absolute right-0 top-0 flex h-screen w-full flex-col border-l border-white/[0.06] bg-surface sm:w-[480px]">
+        <header className="flex items-start justify-between gap-4 border-b border-white/[0.06] px-6 py-5">
+          <div>
+            <h2 className="text-base font-medium tracking-tight text-white">
+              {mode === 'close' ? 'Close trade' : 'Log trade'}
+            </h2>
+            <p className="mt-1 text-xs text-white/45">
+              {mode === 'close'
+                ? 'Record the exit and capture the lesson'
+                : 'Track a new position or closed trade'}
+            </p>
+          </div>
+          <CloseButton onClose={onClose} />
+        </header>
+        {mode === 'close' && prefill ? (
+          <CloseTradeForm prefill={prefill} onSuccess={onClose} />
+        ) : (
+          <CreateTradeForm onSuccess={onClose} />
+        )}
+      </div>
+    </div>
+  )
+}
