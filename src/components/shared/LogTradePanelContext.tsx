@@ -15,10 +15,17 @@ export type LogTradePrefill = {
   mode?: LogTradePanelMode
   trade_id?: string
   asset_symbol?: string
+  coingecko_id?: string
   direction?: 'long' | 'short'
   entry_price?: number
   entry_size?: number
   venue?: string
+  narrative_tag?: string
+  setup_type?: string
+  thesis?: string
+  alert_id?: string
+  suggested_stop?: number
+  suggested_target?: number
 }
 
 type Ctx = {
