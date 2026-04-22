@@ -51,7 +51,7 @@ export function ActivityTabs() {
           )
         })}
       </div>
-      <div role="tabpanel" className="flex min-h-[200px] justify-center pt-14">
+      <div role="tabpanel" className="flex min-h-[140px] justify-center pt-10">
         <p className="text-sm text-white/35">{current.empty}</p>
       </div>
     </div>

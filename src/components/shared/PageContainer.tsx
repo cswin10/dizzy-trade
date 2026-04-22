@@ -9,7 +9,9 @@ export type PageContainerProps = {
 
 export function PageContainer({ className, children }: PageContainerProps) {
   return (
-    <div className={twMerge('mx-auto w-full max-w-7xl px-8 py-8', className)}>
+    <div
+      className={twMerge('mx-auto w-full max-w-7xl px-8 pb-8 pt-10', className)}
+    >
       {children}
     </div>
   )
