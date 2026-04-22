@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 
+import { ActivityTabs } from '@/components/shared/ActivityTabs'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { Panel } from '@/components/ui/Panel'
@@ -18,6 +19,18 @@ function MetricLabel({ children }: { children: React.ReactNode }) {
   return (
     <span className="text-[11px] font-medium uppercase tracking-wider text-white/45">
       {children}
+    </span>
+  )
+}
+
+function LiveIndicator() {
+  return (
+    <span
+      aria-hidden="true"
+      className="relative ml-4 inline-flex h-2 w-2 items-center justify-center self-center"
+    >
+      <span className="animate-pulse-ring absolute inset-0 rounded-full bg-accent" />
+      <span className="relative h-1.5 w-1.5 rounded-full bg-accent" />
     </span>
   )
 }
@@ -55,7 +68,7 @@ export default async function DashboardPage() {
           <>
             <span className="inline-flex items-center gap-2">
               <StatusDot tone="positive" />
-              <span className="text-sm text-white/55">Live</span>
+              <span className="text-sm text-accent">Live</span>
             </span>
             <span
               className="rounded-md border border-white/[0.06] bg-surface px-2.5 py-1 text-xs text-white/70"
@@ -67,79 +80,92 @@ export default async function DashboardPage() {
         }
       />
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Panel title="Open positions">
-          <div className="flex flex-col gap-2 py-2">
-            <MetricLabel>Count</MetricLabel>
-            <span className="text-4xl font-medium tracking-tight text-white/90">
-              0
-            </span>
-            <span className="text-sm text-white/45">Across 0 venues</span>
-          </div>
-        </Panel>
-
-        <Panel title="Today PnL">
-          <div className="flex flex-col gap-2 py-2">
-            <MetricLabel>24h PnL</MetricLabel>
-            <span className="text-4xl font-medium tracking-tight text-white/70">
-              0.00
-            </span>
-            <div className="flex flex-col gap-0.5 text-sm text-white/45">
+      <div className="grid grid-cols-12 gap-4 md:grid-rows-2">
+        <Panel
+          title="24h PnL"
+          variant="hero"
+          className="col-span-12 md:col-span-6 md:row-span-2"
+        >
+          <div className="flex h-full flex-col justify-between gap-6">
+            <div className="flex items-center">
+              <span className="text-6xl font-medium leading-none tracking-tight text-accent">
+                0.00
+              </span>
+              <LiveIndicator />
+            </div>
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-white/45">
               <span>Realised · 0.00</span>
+              <span aria-hidden="true" className="h-3 w-px bg-white/10" />
               <span>Unrealised · 0.00</span>
+              <span aria-hidden="true" className="h-3 w-px bg-white/10" />
+              <span>Fees · 0.00</span>
+            </div>
+            <div className="relative h-16 w-full">
+              <div className="absolute inset-x-0 top-1/2 h-px bg-white/10" />
+              <span className="absolute bottom-0 left-0 text-[10px] uppercase tracking-wider text-white/25">
+                Sparkline pending
+              </span>
             </div>
           </div>
         </Panel>
 
-        <Panel title="Rules">
-          <div className="flex flex-col gap-4 py-2">
-            <div className="flex flex-col gap-1">
-              <MetricLabel>Active</MetricLabel>
-              <span className="text-2xl font-medium tracking-tight text-white/90">
-                0
-              </span>
-            </div>
-            <div className="flex flex-col gap-1">
-              <MetricLabel>Violations</MetricLabel>
-              <span className="text-2xl font-medium tracking-tight text-white/70">
-                0
-              </span>
-            </div>
-            <span className="text-sm text-white/55">All systems green</span>
-          </div>
-        </Panel>
-
-        <Panel title="Watchlist">
-          <div className="flex flex-col gap-2 py-2">
-            <MetricLabel>Tracked</MetricLabel>
-            <span className="text-4xl font-medium tracking-tight text-white/90">
+        <Panel
+          title="Open positions"
+          variant="compact"
+          className="col-span-6 md:col-span-3"
+        >
+          <div className="flex flex-col gap-1.5">
+            <MetricLabel>Count</MetricLabel>
+            <span className="text-3xl font-medium tracking-tight text-white/90">
               0
             </span>
-            <span className="text-sm text-white/45">0 narratives</span>
+            <span className="text-xs text-white/45">Across 0 venues</span>
+          </div>
+        </Panel>
+
+        <Panel
+          title="Watchlist"
+          variant="compact"
+          className="col-span-6 md:col-span-3"
+        >
+          <div className="flex flex-col gap-1.5">
+            <MetricLabel>Tracked</MetricLabel>
+            <span className="text-3xl font-medium tracking-tight text-white/90">
+              0
+            </span>
+            <span className="text-xs text-white/45">0 narratives</span>
+          </div>
+        </Panel>
+
+        <Panel
+          title="Rules"
+          variant="compact"
+          className="col-span-12 md:col-span-6"
+        >
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-6">
+              <div className="flex flex-col gap-1">
+                <MetricLabel>Active</MetricLabel>
+                <span className="text-3xl font-medium tracking-tight text-white/90">
+                  0
+                </span>
+              </div>
+              <span aria-hidden="true" className="h-8 w-px bg-white/10" />
+              <div className="flex flex-col gap-1">
+                <MetricLabel>Violations</MetricLabel>
+                <span className="text-3xl font-medium tracking-tight text-white/70">
+                  0
+                </span>
+              </div>
+            </div>
+            <span className="text-xs text-white/55">All systems green</span>
           </div>
         </Panel>
       </div>
 
       <div className="mt-4">
-        <Panel title="Recent trades">
-          <div className="flex min-h-[120px] items-center justify-center">
-            <p className="text-sm text-white/35">Nothing logged yet</p>
-          </div>
-        </Panel>
-      </div>
-
-      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Panel title="Narrative heat">
-          <div className="flex min-h-[120px] items-center justify-center">
-            <p className="text-sm text-white/35">Signals will appear here</p>
-          </div>
-        </Panel>
-        <Panel title="Claude digest">
-          <div className="flex min-h-[120px] items-center justify-center">
-            <p className="text-sm text-white/35">
-              First digest generates tomorrow
-            </p>
-          </div>
+        <Panel title="Activity">
+          <ActivityTabs />
         </Panel>
       </div>
     </PageContainer>

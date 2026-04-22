@@ -1,0 +1,59 @@
+'use client'
+
+import { useState } from 'react'
+
+import { twMerge } from 'tailwind-merge'
+
+type Tab = {
+  id: 'trades' | 'narratives' | 'digest'
+  label: string
+  empty: string
+}
+
+const TABS: readonly Tab[] = [
+  { id: 'trades', label: 'Trades', empty: 'Nothing logged yet' },
+  { id: 'narratives', label: 'Narratives', empty: 'Signals will appear here' },
+  { id: 'digest', label: 'Digest', empty: 'First digest generates tomorrow' },
+] as const
+
+export function ActivityTabs() {
+  const [active, setActive] = useState<Tab['id']>('trades')
+  const current = TABS.find((t) => t.id === active) ?? TABS[0]!
+
+  return (
+    <div>
+      <div
+        role="tablist"
+        className="flex items-center gap-6 border-b border-white/[0.04] pb-3"
+      >
+        {TABS.map((tab) => {
+          const selected = tab.id === active
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              onClick={() => setActive(tab.id)}
+              className={twMerge(
+                'relative text-[11px] font-medium uppercase tracking-wider transition-colors duration-200',
+                selected ? 'text-white' : 'text-white/45 hover:text-white/70',
+              )}
+            >
+              {tab.label}
+              {selected ? (
+                <span
+                  aria-hidden="true"
+                  className="absolute -bottom-[13px] left-0 right-0 h-px bg-accent"
+                />
+              ) : null}
+            </button>
+          )
+        })}
+      </div>
+      <div role="tabpanel" className="flex min-h-[200px] justify-center pt-14">
+        <p className="text-sm text-white/35">{current.empty}</p>
+      </div>
+    </div>
+  )
+}

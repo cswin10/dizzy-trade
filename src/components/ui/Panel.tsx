@@ -2,10 +2,25 @@ import { type ReactNode } from 'react'
 
 import { twMerge } from 'tailwind-merge'
 
+type Variant = 'default' | 'compact' | 'hero'
+
+const headerPadding: Record<Variant, string> = {
+  default: 'px-5 pb-0 pt-4',
+  compact: 'px-4 pb-0 pt-3',
+  hero: 'px-6 pb-0 pt-5',
+}
+
+const bodyPadding: Record<Variant, string> = {
+  default: 'px-5 py-4',
+  compact: 'px-4 py-3',
+  hero: 'px-6 py-5',
+}
+
 export type PanelProps = {
   title?: string
   headerRight?: ReactNode
   interactive?: boolean
+  variant?: Variant
   className?: string
   bodyClassName?: string
   children?: ReactNode
@@ -15,6 +30,7 @@ export function Panel({
   title,
   headerRight,
   interactive = false,
+  variant = 'default',
   className,
   bodyClassName,
   children,
@@ -31,7 +47,12 @@ export function Panel({
       )}
     >
       {title || headerRight ? (
-        <header className="flex items-center justify-between px-5 pb-0 pt-4">
+        <header
+          className={twMerge(
+            'flex items-center justify-between',
+            headerPadding[variant],
+          )}
+        >
           {title ? (
             <h2 className="text-[11px] font-medium uppercase tracking-wider text-white/55">
               {title}
@@ -44,7 +65,9 @@ export function Panel({
           ) : null}
         </header>
       ) : null}
-      <div className={twMerge('px-5 py-4', bodyClassName)}>{children}</div>
+      <div className={twMerge(bodyPadding[variant], bodyClassName)}>
+        {children}
+      </div>
     </section>
   )
 }
