@@ -34,12 +34,13 @@ vercel env pull
 
 The application expects the following variables:
 
-| Name                            | Scope               | Purpose                                                               |
-| ------------------------------- | ------------------- | --------------------------------------------------------------------- |
-| `NEXT_PUBLIC_SUPABASE_URL`      | Public, client-safe | Supabase project URL used by the browser and server Supabase clients. |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public, client-safe | Supabase anon key used by the browser and server Supabase clients.    |
-| `SUPABASE_SERVICE_ROLE_KEY`     | Server-only, secret | Privileged Supabase key. Must never be exposed to the client.         |
-| `ANTHROPIC_API_KEY`             | Server-only, secret | Used for platform-owned Claude calls such as the shared news digest.  |
+| Name                            | Scope               | Purpose                                                                                                                                                                                                            |
+| ------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `NEXT_PUBLIC_SUPABASE_URL`      | Public, client-safe | Supabase project URL used by the browser and server Supabase clients.                                                                                                                                              |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public, client-safe | Supabase anon key used by the browser and server Supabase clients.                                                                                                                                                 |
+| `SUPABASE_SERVICE_ROLE_KEY`     | Server-only, secret | Privileged Supabase key. Must never be exposed to the client.                                                                                                                                                      |
+| `ANTHROPIC_API_KEY`             | Server-only, secret | Used for platform-owned Claude calls such as the shared news digest.                                                                                                                                               |
+| `SEED_TOKEN`                    | Server-only, secret | Optional. Gates the one-off admin endpoint at `/api/admin/seed-assets`, which fetches the Coingecko catalogue into `public.assets_reference`. Leave unset in environments that should never accept a seed request. |
 
 Variables prefixed with `NEXT_PUBLIC_` are inlined into the client bundle at build time, so only put values here that are safe for the browser to see. All other variables are only available in server-side code (route handlers, server components, server actions).
 

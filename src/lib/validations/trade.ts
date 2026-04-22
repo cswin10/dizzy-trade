@@ -41,6 +41,7 @@ export const logTradeSchema = z
       .min(1, 'Asset is required')
       .max(20, 'Asset symbol must be 20 characters or fewer')
       .transform((s) => s.toUpperCase()),
+    coingecko_id: optionalString,
     direction: z.enum(['long', 'short'], {
       errorMap: () => ({ message: 'Direction must be long or short' }),
     }),

@@ -16,6 +16,10 @@ const serverSchema = z.object({
     .string()
     .min(1, 'SUPABASE_SERVICE_ROLE_KEY is required'),
   ANTHROPIC_API_KEY: z.string().min(1, 'ANTHROPIC_API_KEY is required'),
+  // Optional: shared secret that gates the one-off admin seed endpoint at
+  // /api/admin/seed-assets. Left unset in environments that should never
+  // accept a seed request.
+  SEED_TOKEN: z.string().min(16).optional(),
 })
 
 export type ClientEnv = z.infer<typeof clientSchema>
@@ -49,6 +53,7 @@ function parseServerEnv(): ServerEnv {
   const result = serverSchema.safeParse({
     SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+    SEED_TOKEN: process.env.SEED_TOKEN,
   })
   if (!result.success) throw new Error(formatMessage('server', result))
   return result.data

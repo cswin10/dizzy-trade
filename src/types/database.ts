@@ -85,6 +85,30 @@ export type Database = {
         }
         Relationships: []
       }
+      assets_reference: {
+        Row: {
+          coingecko_id: string
+          symbol: string
+          name: string
+          market_cap_rank: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          coingecko_id: string
+          symbol: string
+          name: string
+          market_cap_rank?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          coingecko_id?: string
+          symbol?: string
+          name?: string
+          market_cap_rank?: number | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       trades: {
         Row: {
           id: string
