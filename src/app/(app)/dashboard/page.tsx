@@ -11,22 +11,14 @@ export const metadata = {
 }
 
 function shortenTenant(name: string): string {
-  return name.length > 12 ? `${name.slice(0, 12)}…` : name
+  return name.length > 20 ? `${name.slice(0, 20)}…` : name
 }
 
-function ReadoutLabel({ children }: { children: React.ReactNode }) {
+function MetricLabel({ children }: { children: React.ReactNode }) {
   return (
-    <span className="text-[11px] uppercase tracking-widest text-light/40">
+    <span className="text-[11px] font-medium uppercase tracking-wider text-white/45">
       {children}
     </span>
-  )
-}
-
-function EmptyReadout({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="text-center text-[11px] uppercase tracking-widest text-light/40">
-      - {children} -
-    </p>
   )
 }
 
@@ -61,80 +53,92 @@ export default async function DashboardPage() {
         subtitle={`Signed in as ${user.email ?? 'unknown'}`}
         rightSlot={
           <>
-            <span className="inline-flex items-center gap-2 text-[11px] uppercase tracking-widest text-light/60">
-              <StatusDot />
-              <span className="text-teal">Live</span>
+            <span className="inline-flex items-center gap-2">
+              <StatusDot tone="positive" />
+              <span className="text-sm text-white/55">Live</span>
             </span>
-            <span className="h-4 w-px bg-light/15" aria-hidden="true" />
-            <span className="text-[11px] uppercase tracking-widest text-light/60">
-              Tenant ·{' '}
-              <span className="text-light">
-                {tenantName ? shortenTenant(tenantName) : '-'}
-              </span>
+            <span
+              className="rounded-md border border-white/[0.06] bg-surface px-2.5 py-1 text-xs text-white/70"
+              title={tenantName || undefined}
+            >
+              {tenantName ? shortenTenant(tenantName) : 'No tenant'}
             </span>
           </>
         }
       />
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Panel title="Open positions">
-          <div className="flex flex-col gap-2">
-            <ReadoutLabel>Count</ReadoutLabel>
-            <span className="text-2xl font-medium text-light">0</span>
-            <EmptyReadout>No positions</EmptyReadout>
+          <div className="flex flex-col gap-2 py-2">
+            <MetricLabel>Count</MetricLabel>
+            <span className="text-4xl font-medium tracking-tight text-white/90">
+              0
+            </span>
+            <span className="text-sm text-white/45">Across 0 venues</span>
           </div>
         </Panel>
 
         <Panel title="Today PnL">
-          <div className="flex flex-col gap-2">
-            <ReadoutLabel>PnL · 24h</ReadoutLabel>
-            <span className="text-2xl font-medium text-accent">0.0000</span>
-            <span className="text-[11px] uppercase tracking-widest text-light/40">
-              Realised · 0.0000
+          <div className="flex flex-col gap-2 py-2">
+            <MetricLabel>24h PnL</MetricLabel>
+            <span className="text-4xl font-medium tracking-tight text-white/70">
+              0.00
             </span>
+            <div className="flex flex-col gap-0.5 text-sm text-white/45">
+              <span>Realised · 0.00</span>
+              <span>Unrealised · 0.00</span>
+            </div>
           </div>
         </Panel>
 
         <Panel title="Rules">
-          <div className="flex flex-col gap-2">
-            <ReadoutLabel>Status</ReadoutLabel>
-            <div className="flex items-center gap-2 text-[11px] uppercase tracking-widest text-light/60">
-              <StatusDot tone="active" />
-              <span>0 active</span>
+          <div className="flex flex-col gap-4 py-2">
+            <div className="flex flex-col gap-1">
+              <MetricLabel>Active</MetricLabel>
+              <span className="text-2xl font-medium tracking-tight text-white/90">
+                0
+              </span>
             </div>
-            <div className="flex items-center gap-2 text-[11px] uppercase tracking-widest text-light/40">
-              <StatusDot tone="muted" />
-              <span>0 violations</span>
+            <div className="flex flex-col gap-1">
+              <MetricLabel>Violations</MetricLabel>
+              <span className="text-2xl font-medium tracking-tight text-white/70">
+                0
+              </span>
             </div>
+            <span className="text-sm text-white/55">All systems green</span>
           </div>
         </Panel>
 
         <Panel title="Watchlist">
-          <div className="flex flex-col gap-2">
-            <ReadoutLabel>Tracked</ReadoutLabel>
-            <span className="text-2xl font-medium text-light">0</span>
-            <EmptyReadout>Empty</EmptyReadout>
+          <div className="flex flex-col gap-2 py-2">
+            <MetricLabel>Tracked</MetricLabel>
+            <span className="text-4xl font-medium tracking-tight text-white/90">
+              0
+            </span>
+            <span className="text-sm text-white/45">0 narratives</span>
           </div>
         </Panel>
       </div>
 
-      <div className="mt-3">
+      <div className="mt-4">
         <Panel title="Recent trades">
           <div className="flex min-h-[120px] items-center justify-center">
-            <EmptyReadout>Trade log empty</EmptyReadout>
+            <p className="text-sm text-white/35">Nothing logged yet</p>
           </div>
         </Panel>
       </div>
 
-      <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Panel title="Narrative heat">
           <div className="flex min-h-[120px] items-center justify-center">
-            <EmptyReadout>Awaiting data</EmptyReadout>
+            <p className="text-sm text-white/35">Signals will appear here</p>
           </div>
         </Panel>
         <Panel title="Claude digest">
           <div className="flex min-h-[120px] items-center justify-center">
-            <EmptyReadout>Awaiting data</EmptyReadout>
+            <p className="text-sm text-white/35">
+              First digest generates tomorrow
+            </p>
           </div>
         </Panel>
       </div>

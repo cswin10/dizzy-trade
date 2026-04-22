@@ -5,21 +5,25 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        navy: {
-          DEFAULT: '#1A1F36',
-          deep: '#141829',
+        base: '#0A0B0E',
+        surface: {
+          DEFAULT: '#14161C',
+          2: '#1B1E26',
         },
         accent: {
-          DEFAULT: '#2979FF',
-          hover: '#3B85FF',
+          DEFAULT: '#3B82FF',
+          glow: 'rgba(59, 130, 255, 0.35)',
         },
-        teal: '#50E3C2',
-        light: '#F2F4F8',
+        positive: '#4ADE80',
+        negative: '#F87171',
         warning: '#F59E0B',
-        danger: '#EF4444',
       },
       fontFamily: {
         sans: ['var(--font-inter)', 'system-ui', 'sans-serif'],
+      },
+      backgroundImage: {
+        'panel-lit':
+          'linear-gradient(to bottom, rgba(255, 255, 255, 0.02), transparent 40%)',
       },
     },
   },

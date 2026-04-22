@@ -49,18 +49,23 @@ export function TopNav({ userEmail }: TopNavProps) {
   }, [open])
 
   return (
-    <nav className="sticky top-0 z-40 grid h-14 grid-cols-[1fr_auto_1fr] items-center border-b border-light/10 bg-navy-deep px-6">
+    <nav className="sticky top-0 z-40 grid h-14 grid-cols-[1fr_auto_1fr] items-center border-b border-white/[0.06] bg-base/80 px-6 backdrop-blur-sm">
       <div className="justify-self-start">
         <Link
           href="/dashboard"
-          className="inline-flex items-baseline text-sm font-semibold uppercase tracking-widest text-accent"
+          className="group inline-flex items-center gap-2.5"
         >
-          <span>Dizzy Trade</span>
-          <span className="ml-0.5 animate-pulse text-teal">_</span>
+          <span
+            aria-hidden="true"
+            className="h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_10px_rgba(59,130,255,0.6)]"
+          />
+          <span className="text-base font-medium tracking-tight text-white">
+            Dizzy Trade
+          </span>
         </Link>
       </div>
 
-      <ul className="flex items-center gap-8 justify-self-center">
+      <ul className="flex items-center gap-7 justify-self-center">
         {NAV_ITEMS.map((item) => {
           const active = isActive(pathname, item.href)
           return (
@@ -68,8 +73,8 @@ export function TopNav({ userEmail }: TopNavProps) {
               <Link
                 href={item.href}
                 className={twMerge(
-                  'text-xs font-medium uppercase tracking-widest transition-colors',
-                  active ? 'text-accent' : 'text-light/60 hover:text-light',
+                  'text-sm font-medium transition-colors duration-200',
+                  active ? 'text-white' : 'text-white/55 hover:text-white',
                 )}
               >
                 {item.label}
@@ -77,7 +82,7 @@ export function TopNav({ userEmail }: TopNavProps) {
               {active ? (
                 <span
                   aria-hidden="true"
-                  className="absolute -bottom-[18px] left-0 right-0 h-px bg-teal"
+                  className="absolute -bottom-[18px] left-0 right-0 h-px bg-accent"
                 />
               ) : null}
             </li>
@@ -89,7 +94,12 @@ export function TopNav({ userEmail }: TopNavProps) {
         <button
           type="button"
           onClick={() => setOpen((prev) => !prev)}
-          className="inline-flex items-center gap-2 text-xs text-light/60 hover:text-light"
+          className={twMerge(
+            'inline-flex items-center gap-2 rounded-md px-2.5 py-1.5',
+            'text-sm text-white/55 transition-colors duration-200',
+            'hover:bg-surface hover:text-white',
+            open && 'bg-surface text-white',
+          )}
           aria-haspopup="menu"
           aria-expanded={open}
         >
@@ -99,13 +109,13 @@ export function TopNav({ userEmail }: TopNavProps) {
         {open ? (
           <div
             role="menu"
-            className="absolute right-0 top-full mt-2 min-w-[160px] border border-light/10 bg-navy-deep p-1"
+            className="absolute right-0 top-full mt-2 min-w-[180px] rounded-lg border border-white/[0.06] bg-surface bg-panel-lit p-1"
           >
             <form method="post" action="/sign-out">
               <button
                 type="submit"
                 role="menuitem"
-                className="block w-full px-3 py-2 text-left text-[11px] font-medium uppercase tracking-widest text-light/70 hover:bg-light/5 hover:text-light"
+                className="block w-full rounded-md px-3 py-2 text-left text-sm text-white/70 transition-colors duration-200 hover:bg-surface-2 hover:text-white"
               >
                 Sign out
               </button>
@@ -123,7 +133,7 @@ function Chevron({ open }: { open: boolean }) {
       aria-hidden="true"
       viewBox="0 0 12 12"
       className={twMerge(
-        'h-2.5 w-2.5 transition-transform',
+        'h-2.5 w-2.5 transition-transform duration-200',
         open ? 'rotate-180' : 'rotate-0',
       )}
     >
@@ -132,7 +142,8 @@ function Chevron({ open }: { open: boolean }) {
         fill="none"
         stroke="currentColor"
         strokeWidth="1.5"
-        strokeLinecap="square"
+        strokeLinecap="round"
+        strokeLinejoin="round"
       />
     </svg>
   )

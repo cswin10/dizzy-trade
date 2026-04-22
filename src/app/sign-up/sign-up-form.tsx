@@ -16,8 +16,8 @@ function SubmitButton() {
     <Button type="submit" disabled={pending}>
       {pending ? (
         <>
-          <StatusDot pulse />
-          <span>Creating account…</span>
+          <StatusDot tone="accent" pulse />
+          <span>Creating account</span>
         </>
       ) : (
         <span>Create account</span>
@@ -31,17 +31,20 @@ export function SignUpForm() {
 
   if (state.status === 'success') {
     return (
-      <div className="flex flex-col gap-3 border border-teal/40 bg-teal/5 p-4">
-        <div className="flex items-center gap-2 text-[11px] uppercase tracking-widest text-teal">
-          <StatusDot />
-          <span className="font-semibold">Check your email</span>
+      <div className="flex flex-col gap-3 rounded-md border border-positive/30 bg-positive/10 p-4">
+        <div className="flex items-center gap-2 text-sm text-positive">
+          <StatusDot tone="positive" />
+          <span className="font-medium">Check your email</span>
         </div>
-        <p className="text-sm text-light/70">
-          We sent a confirmation link to your inbox. Click it to activate your
-          account and then sign in.
+        <p className="text-sm text-white/70">
+          We sent a confirmation link to your inbox. Click it to confirm your
+          account, then sign in.
         </p>
-        <div className="flex items-center gap-2 pt-2 text-[11px] uppercase tracking-widest text-light/40">
-          <Link href="/sign-in" className="text-accent hover:text-accent-hover">
+        <div className="pt-1 text-sm text-white/55">
+          <Link
+            href="/sign-in"
+            className="text-accent transition-colors duration-200 hover:text-accent/80"
+          >
             Back to sign in
           </Link>
         </div>
@@ -67,15 +70,18 @@ export function SignUpForm() {
         required
       />
       {state.status === 'error' ? (
-        <p className="text-xs uppercase tracking-widest text-danger">
-          <span className="font-semibold">Error ·</span>{' '}
-          <span className="normal-case tracking-normal">{state.message}</span>
-        </p>
+        <div className="rounded-md border border-negative/30 bg-negative/10 px-3 py-2 text-sm text-negative">
+          <span className="font-medium">Error</span>
+          <span className="text-negative/80"> · {state.message}</span>
+        </div>
       ) : null}
       <SubmitButton />
-      <div className="flex items-center justify-center gap-2 text-[11px] uppercase tracking-widest text-light/40">
+      <div className="flex items-center justify-center gap-1.5 text-sm text-white/55">
         <span>Have an account?</span>
-        <Link href="/sign-in" className="text-accent hover:text-accent-hover">
+        <Link
+          href="/sign-in"
+          className="text-accent transition-colors duration-200 hover:text-accent/80"
+        >
           Sign in
         </Link>
       </div>
