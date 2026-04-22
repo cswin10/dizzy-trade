@@ -23,6 +23,12 @@ export async function middleware(request: NextRequest) {
     return response
   }
 
+  // Admin API endpoints authenticate themselves (e.g. shared secret in a
+  // header) and must not be gated by the Supabase session redirect.
+  if (path.startsWith('/api/admin/')) {
+    return response
+  }
+
   if (userId && AUTH_ROUTES.has(path)) {
     return NextResponse.redirect(new URL('/dashboard', request.url))
   }
