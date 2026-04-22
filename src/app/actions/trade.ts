@@ -83,6 +83,7 @@ export async function logTradeAction(
     tenant_id: tenantId,
     user_id: user.id,
     asset_symbol: d.asset_symbol,
+    coingecko_id: d.coingecko_id ?? null,
     direction: d.direction,
     entry_price: d.entry_price,
     entry_size: d.entry_size,

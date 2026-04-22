@@ -5,11 +5,13 @@ import { useFormState, useFormStatus } from 'react-dom'
 
 import { twMerge } from 'tailwind-merge'
 
+import { fetchCurrentPrice, type AssetResult } from '@/app/actions/assets'
 import { closeTradeAction, logTradeAction } from '@/app/actions/trade'
 import {
   initialTradeActionState,
   type TradeActionState,
 } from '@/app/actions/trade-types'
+import { AssetPicker } from '@/components/ui/AssetPicker'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { PillToggle } from '@/components/ui/PillToggle'
@@ -168,9 +170,46 @@ function CreateTradeForm({ onSuccess }: { onSuccess: () => void }) {
   const [setup, setSetup] = useState<SetupType | undefined>(undefined)
   const [venue, setVenue] = useState('')
   const [entrySize, setEntrySize] = useState('')
+  const [entryPrice, setEntryPrice] = useState('')
+  const [priceStatus, setPriceStatus] = useState<
+    'idle' | 'loading' | 'fetched' | 'error'
+  >('idle')
   const [exitOpen, setExitOpen] = useState(false)
   const [exitFilled, setExitFilled] = useState(false)
   const defaultEntryAt = useMemo(localNowString, [])
+
+  const handleAssetSelected = async (asset: AssetResult) => {
+    setEntryPrice('')
+    setPriceStatus('loading')
+    const result = await fetchCurrentPrice(asset.coingecko_id)
+    if ('error' in result) {
+      setPriceStatus('error')
+      return
+    }
+    setEntryPrice(String(result.price))
+    setPriceStatus('fetched')
+  }
+
+  const priceHelper = (() => {
+    if (priceStatus === 'loading') {
+      return <span className="text-white/45">Fetching current price...</span>
+    }
+    if (priceStatus === 'fetched') {
+      return (
+        <span className="text-white/45">
+          Current market price, edit if your fill was different
+        </span>
+      )
+    }
+    if (priceStatus === 'error') {
+      return (
+        <span className="text-warning">
+          Could not fetch price, enter manually
+        </span>
+      )
+    }
+    return null
+  })()
 
   useEffect(() => {
     if (state.status === 'success') onSuccess()
@@ -183,12 +222,12 @@ function CreateTradeForm({ onSuccess }: { onSuccess: () => void }) {
 
         <section className="space-y-4">
           <SectionTitle>Entry</SectionTitle>
-          <Input
+          <AssetPicker
             label="Asset symbol"
             name="asset_symbol"
-            placeholder="e.g. BTC"
-            maxLength={20}
+            coingeckoIdName="coingecko_id"
             required
+            onAssetSelected={handleAssetSelected}
           />
           <PillToggle<Direction>
             label="Direction"
@@ -202,14 +241,22 @@ function CreateTradeForm({ onSuccess }: { onSuccess: () => void }) {
             required
           />
           <div className="grid grid-cols-2 gap-3">
-            <Input
-              label="Entry price"
-              name="entry_price"
-              type="number"
-              step="any"
-              min="0"
-              required
-            />
+            <div className="flex flex-col gap-1.5">
+              <Input
+                label="Entry price"
+                name="entry_price"
+                type="number"
+                step="any"
+                min="0"
+                value={entryPrice}
+                onChange={(e) => {
+                  setEntryPrice(e.target.value)
+                  if (priceStatus !== 'idle') setPriceStatus('idle')
+                }}
+                required
+              />
+              {priceHelper ? <p className="text-xs">{priceHelper}</p> : null}
+            </div>
             <Input
               label="Entry size"
               name="entry_size"
