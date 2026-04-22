@@ -30,10 +30,17 @@ export type LogTradePanelMode = 'create' | 'close'
 type Prefill = {
   trade_id?: string
   asset_symbol?: string
+  coingecko_id?: string
   direction?: 'long' | 'short'
   entry_price?: number
   entry_size?: number
   venue?: string
+  narrative_tag?: string
+  setup_type?: string
+  thesis?: string
+  alert_id?: string
+  suggested_stop?: number
+  suggested_target?: number
 }
 
 type Direction = 'long' | 'short'
@@ -157,23 +164,51 @@ function VenueInput({
   )
 }
 
-function CreateTradeForm({ onSuccess }: { onSuccess: () => void }) {
+function matchNarrative(value: string | undefined): NarrativeTag | undefined {
+  if (!value) return undefined
+  return (NARRATIVE_TAGS as readonly string[]).includes(value)
+    ? (value as NarrativeTag)
+    : undefined
+}
+
+function matchSetup(value: string | undefined): SetupType | undefined {
+  if (!value) return undefined
+  return (SETUP_TYPES as readonly string[]).includes(value)
+    ? (value as SetupType)
+    : undefined
+}
+
+function CreateTradeForm({
+  prefill,
+  onSuccess,
+}: {
+  prefill?: Prefill
+  onSuccess: () => void
+}) {
   const [state, formAction] = useFormState<TradeActionState, FormData>(
     logTradeAction,
     initialTradeActionState,
   )
 
-  const [direction, setDirection] = useState<Direction>('long')
-  const [narrative, setNarrative] = useState<NarrativeTag | undefined>(
-    undefined,
+  const [direction, setDirection] = useState<Direction>(
+    prefill?.direction ?? 'long',
   )
-  const [setup, setSetup] = useState<SetupType | undefined>(undefined)
-  const [venue, setVenue] = useState('')
-  const [entrySize, setEntrySize] = useState('')
-  const [entryPrice, setEntryPrice] = useState('')
+  const [narrative, setNarrative] = useState<NarrativeTag | undefined>(
+    matchNarrative(prefill?.narrative_tag),
+  )
+  const [setup, setSetup] = useState<SetupType | undefined>(
+    matchSetup(prefill?.setup_type),
+  )
+  const [venue, setVenue] = useState(prefill?.venue ?? '')
+  const [entrySize, setEntrySize] = useState(
+    prefill?.entry_size !== undefined ? String(prefill.entry_size) : '',
+  )
+  const [entryPrice, setEntryPrice] = useState(
+    prefill?.entry_price !== undefined ? String(prefill.entry_price) : '',
+  )
   const [priceStatus, setPriceStatus] = useState<
     'idle' | 'loading' | 'fetched' | 'error'
-  >('idle')
+  >(prefill?.entry_price !== undefined ? 'fetched' : 'idle')
   const [exitOpen, setExitOpen] = useState(false)
   const [exitFilled, setExitFilled] = useState(false)
   const defaultEntryAt = useMemo(localNowString, [])
@@ -217,8 +252,17 @@ function CreateTradeForm({ onSuccess }: { onSuccess: () => void }) {
 
   return (
     <form action={formAction} className="flex flex-1 flex-col overflow-hidden">
+      {prefill?.alert_id ? (
+        <input type="hidden" name="alert_id" value={prefill.alert_id} />
+      ) : null}
       <div className="flex-1 space-y-7 overflow-y-auto px-6 py-5">
-        <ScreenshotPlaceholder />
+        {prefill?.alert_id ? (
+          <div className="rounded-md border border-accent/30 bg-accent/10 px-3 py-2 text-xs text-accent">
+            Pre-filled from alert. Review, adjust, and log when ready.
+          </div>
+        ) : (
+          <ScreenshotPlaceholder />
+        )}
 
         <section className="space-y-4">
           <SectionTitle>Entry</SectionTitle>
@@ -227,6 +271,8 @@ function CreateTradeForm({ onSuccess }: { onSuccess: () => void }) {
             name="asset_symbol"
             coingeckoIdName="coingecko_id"
             required
+            initialSymbol={prefill?.asset_symbol ?? ''}
+            initialCoingeckoId={prefill?.coingecko_id ?? ''}
             onAssetSelected={handleAssetSelected}
           />
           <PillToggle<Direction>
@@ -322,6 +368,7 @@ function CreateTradeForm({ onSuccess }: { onSuccess: () => void }) {
             rows={4}
             placeholder="Why are you taking this trade?"
             maxLength={2000}
+            defaultValue={prefill?.thesis ?? ''}
           />
         </section>
 
@@ -542,7 +589,7 @@ export function LogTradePanel({
         {mode === 'close' && prefill ? (
           <CloseTradeForm prefill={prefill} onSuccess={onClose} />
         ) : (
-          <CreateTradeForm onSuccess={onClose} />
+          <CreateTradeForm prefill={prefill} onSuccess={onClose} />
         )}
       </div>
     </div>

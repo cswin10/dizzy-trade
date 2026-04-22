@@ -79,31 +79,51 @@ export async function logTradeAction(
     outcome = outcomeForPnl(pnl)
   }
 
-  const { error } = await supabase.from('trades').insert({
-    tenant_id: tenantId,
-    user_id: user.id,
-    asset_symbol: d.asset_symbol,
-    coingecko_id: d.coingecko_id ?? null,
-    direction: d.direction,
-    entry_price: d.entry_price,
-    entry_size: d.entry_size,
-    leverage: d.leverage,
-    venue: d.venue,
-    narrative_tag: d.narrative_tag,
-    setup_type: d.setup_type ?? null,
-    thesis: d.thesis ?? null,
-    risk_amount_gbp: d.risk_amount_gbp ?? null,
-    entry_at: d.entry_at.toISOString(),
-    exit_price: d.exit_price ?? null,
-    exit_size: d.exit_size ?? null,
-    exit_at: d.exit_at ? d.exit_at.toISOString() : null,
-    lesson: d.lesson ?? null,
-    pnl,
-    outcome,
-    source: 'manual',
-  })
+  const { data: inserted, error } = await supabase
+    .from('trades')
+    .insert({
+      tenant_id: tenantId,
+      user_id: user.id,
+      asset_symbol: d.asset_symbol,
+      coingecko_id: d.coingecko_id ?? null,
+      direction: d.direction,
+      entry_price: d.entry_price,
+      entry_size: d.entry_size,
+      leverage: d.leverage,
+      venue: d.venue,
+      narrative_tag: d.narrative_tag,
+      setup_type: d.setup_type ?? null,
+      thesis: d.thesis ?? null,
+      risk_amount_gbp: d.risk_amount_gbp ?? null,
+      entry_at: d.entry_at.toISOString(),
+      exit_price: d.exit_price ?? null,
+      exit_size: d.exit_size ?? null,
+      exit_at: d.exit_at ? d.exit_at.toISOString() : null,
+      lesson: d.lesson ?? null,
+      pnl,
+      outcome,
+      source: 'manual',
+    })
+    .select('id')
+    .single()
 
   if (error) return { status: 'error', message: error.message }
+
+  // If the trade was opened from an alert, record the link so the alert
+  // stops showing as actionable and the journal row carries the source.
+  if (d.alert_id && inserted?.id) {
+    const { error: linkError } = await supabase
+      .from('alerts')
+      .update({ trade_id: inserted.id })
+      .eq('id', d.alert_id)
+    if (linkError) {
+      console.warn(
+        `[logTradeAction] failed to link alert ${d.alert_id}: ${linkError.message}`,
+      )
+    } else {
+      revalidatePath('/alerts')
+    }
+  }
 
   revalidateAll()
   return { status: 'success' }

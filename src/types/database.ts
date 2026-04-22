@@ -193,6 +193,123 @@ export type Database = {
         }
         Relationships: []
       }
+      universe: {
+        Row: {
+          id: string
+          symbol: string
+          coingecko_id: string | null
+          is_watchlist: boolean
+          is_active: boolean
+          added_at: string | null
+          added_by: string | null
+        }
+        Insert: {
+          id?: string
+          symbol: string
+          coingecko_id?: string | null
+          is_watchlist?: boolean
+          is_active?: boolean
+          added_at?: string | null
+          added_by?: string | null
+        }
+        Update: {
+          id?: string
+          symbol?: string
+          coingecko_id?: string | null
+          is_watchlist?: boolean
+          is_active?: boolean
+          added_at?: string | null
+          added_by?: string | null
+        }
+        Relationships: []
+      }
+      market_snapshots: {
+        Row: {
+          id: number
+          symbol: string
+          mark_price: number | null
+          funding: number | null
+          open_interest: number | null
+          day_notional_volume: number | null
+          captured_at: string
+        }
+        Insert: {
+          id?: number
+          symbol: string
+          mark_price?: number | null
+          funding?: number | null
+          open_interest?: number | null
+          day_notional_volume?: number | null
+          captured_at?: string
+        }
+        Update: {
+          id?: number
+          symbol?: string
+          mark_price?: number | null
+          funding?: number | null
+          open_interest?: number | null
+          day_notional_volume?: number | null
+          captured_at?: string
+        }
+        Relationships: []
+      }
+      alerts: {
+        Row: {
+          id: string
+          tenant_id: string | null
+          framework_id: string
+          symbol: string
+          coingecko_id: string | null
+          triggered_at: string
+          condition_values: Record<string, unknown>
+          suggested_direction: 'long' | 'short' | null
+          suggested_entry: number | null
+          suggested_stop: number | null
+          suggested_target: number | null
+          is_watchlist: boolean
+          trade_id: string | null
+          dismissed: boolean
+          dismissed_at: string | null
+          notified_telegram: boolean
+        }
+        Insert: {
+          id?: string
+          tenant_id?: string | null
+          framework_id: string
+          symbol: string
+          coingecko_id?: string | null
+          triggered_at?: string
+          condition_values?: Record<string, unknown>
+          suggested_direction?: 'long' | 'short' | null
+          suggested_entry?: number | null
+          suggested_stop?: number | null
+          suggested_target?: number | null
+          is_watchlist?: boolean
+          trade_id?: string | null
+          dismissed?: boolean
+          dismissed_at?: string | null
+          notified_telegram?: boolean
+        }
+        Update: {
+          id?: string
+          tenant_id?: string | null
+          framework_id?: string
+          symbol?: string
+          coingecko_id?: string | null
+          triggered_at?: string
+          condition_values?: Record<string, unknown>
+          suggested_direction?: 'long' | 'short' | null
+          suggested_entry?: number | null
+          suggested_stop?: number | null
+          suggested_target?: number | null
+          is_watchlist?: boolean
+          trade_id?: string | null
+          dismissed?: boolean
+          dismissed_at?: string | null
+          notified_telegram?: boolean
+        }
+        Relationships: []
+      }
     }
     Views: Record<string, never>
     Functions: {

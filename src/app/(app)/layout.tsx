@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { type ReactNode } from 'react'
 
+import { AlertToast } from '@/components/shared/AlertToast'
 import { EditLessonDialogProvider } from '@/components/shared/EditLessonDialogContext'
 import { LogTradePanelProvider } from '@/components/shared/LogTradePanelContext'
 import { TopNav } from '@/components/shared/TopNav'
@@ -24,6 +25,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
           <TopNav userEmail={user.email ?? ''} />
           <div className="app-canvas flex-1">{children}</div>
         </div>
+        <AlertToast />
       </EditLessonDialogProvider>
     </LogTradePanelProvider>
   )

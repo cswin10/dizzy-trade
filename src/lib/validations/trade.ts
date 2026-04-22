@@ -79,6 +79,12 @@ export const logTradeSchema = z
     exit_size: optionalPositiveNumber,
     exit_at: optionalDate,
     lesson: optionalString,
+    alert_id: z
+      .string()
+      .uuid('Invalid alert reference')
+      .optional()
+      .or(z.literal(''))
+      .transform((v) => (v === '' || v === undefined ? undefined : v)),
   })
   .superRefine((value, ctx) => {
     const exitPriceSet = value.exit_price !== undefined
