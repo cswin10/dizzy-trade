@@ -5,12 +5,11 @@ import { useFormState, useFormStatus } from 'react-dom'
 
 import { twMerge } from 'tailwind-merge'
 
+import { deleteTradeAction, editLessonAction } from '@/app/actions/trade'
 import {
-  deleteTradeAction,
-  editLessonAction,
   initialTradeActionState,
   type TradeActionState,
-} from '@/app/actions/trade'
+} from '@/app/actions/trade-types'
 import { Button } from '@/components/ui/Button'
 import { Dialog } from '@/components/ui/Dialog'
 import { StatusDot } from '@/components/ui/StatusDot'

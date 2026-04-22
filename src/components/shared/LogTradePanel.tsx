@@ -5,12 +5,11 @@ import { useFormState, useFormStatus } from 'react-dom'
 
 import { twMerge } from 'tailwind-merge'
 
+import { closeTradeAction, logTradeAction } from '@/app/actions/trade'
 import {
-  closeTradeAction,
   initialTradeActionState,
-  logTradeAction,
   type TradeActionState,
-} from '@/app/actions/trade'
+} from '@/app/actions/trade-types'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { PillToggle } from '@/components/ui/PillToggle'
