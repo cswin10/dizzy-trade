@@ -1,11 +1,12 @@
 'use client'
 
+import { twMerge } from 'tailwind-merge'
+
+import { useEditLessonDialog } from './EditLessonDialogContext'
 import { useLogTradePanel } from './LogTradePanelContext'
 import { TradeRowActions } from './TradeRowActions'
 import { Button } from '@/components/ui/Button'
 import { formatPnl, pnlTone, type Trade } from '@/lib/trade-helpers'
-
-import { twMerge } from 'tailwind-merge'
 
 type Variant = 'full' | 'compact'
 
@@ -141,7 +142,37 @@ function EmptyState({ variant }: { variant: Variant }) {
   )
 }
 
+// Shared behaviour for both table rows and mobile cards: clicking a row
+// fires the default action for that trade (close panel for open trades,
+// edit lesson for closed). The row-level action menu stops propagation
+// so its buttons do not also trigger the row click.
+function useRowClick() {
+  const { open: openPanel } = useLogTradePanel()
+  const { openEditLesson } = useEditLessonDialog()
+  return (trade: Trade) => {
+    if (trade.outcome === 'open') {
+      openPanel({
+        mode: 'close',
+        trade_id: trade.id,
+        asset_symbol: trade.asset_symbol,
+        direction: trade.direction,
+        entry_price: trade.entry_price,
+        entry_size: trade.entry_size,
+        venue: trade.venue,
+      })
+      return
+    }
+    openEditLesson({
+      trade_id: trade.id,
+      asset_symbol: trade.asset_symbol,
+      lesson: trade.lesson,
+    })
+  }
+}
+
 export function TradeList({ trades, variant = 'full' }: TradeListProps) {
+  const onRowClick = useRowClick()
+
   if (trades.length === 0) return <EmptyState variant={variant} />
 
   if (variant === 'compact') {
@@ -161,7 +192,8 @@ export function TradeList({ trades, variant = 'full' }: TradeListProps) {
             {trades.map((trade) => (
               <tr
                 key={trade.id}
-                className="border-t border-white/[0.04] text-sm transition-colors duration-200 hover:bg-surface-2"
+                onClick={() => onRowClick(trade)}
+                className="cursor-pointer border-t border-white/[0.04] text-sm transition-colors duration-200 hover:bg-surface-2"
               >
                 <td className="whitespace-nowrap px-3 py-2 text-white/55">
                   {compactDateFormatter.format(new Date(trade.entry_at))}
@@ -208,7 +240,8 @@ export function TradeList({ trades, variant = 'full' }: TradeListProps) {
           {trades.map((trade) => (
             <tr
               key={trade.id}
-              className="border-t border-white/[0.04] text-sm transition-colors duration-200 hover:bg-surface-2"
+              onClick={() => onRowClick(trade)}
+              className="cursor-pointer border-t border-white/[0.04] text-sm transition-colors duration-200 hover:bg-surface-2"
             >
               <td className="whitespace-nowrap px-3 py-3 text-white/55">
                 {dateFormatter.format(new Date(trade.entry_at))}
@@ -257,7 +290,8 @@ export function TradeList({ trades, variant = 'full' }: TradeListProps) {
         {trades.map((trade) => (
           <div
             key={trade.id}
-            className="rounded-md border border-white/[0.06] bg-surface bg-panel-lit p-4"
+            onClick={() => onRowClick(trade)}
+            className="cursor-pointer rounded-md border border-white/[0.06] bg-surface bg-panel-lit p-4 transition-colors duration-200 hover:bg-surface-2"
           >
             <div className="flex items-start justify-between gap-3">
               <div className="flex flex-col gap-1">

@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { type ReactNode } from 'react'
 
+import { EditLessonDialogProvider } from '@/components/shared/EditLessonDialogContext'
 import { LogTradePanelProvider } from '@/components/shared/LogTradePanelContext'
 import { TopNav } from '@/components/shared/TopNav'
 import { createClient } from '@/lib/supabase/server'
@@ -18,10 +19,12 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <LogTradePanelProvider>
-      <div className="flex min-h-screen flex-col">
-        <TopNav userEmail={user.email ?? ''} />
-        <div className="app-canvas flex-1">{children}</div>
-      </div>
+      <EditLessonDialogProvider>
+        <div className="flex min-h-screen flex-col">
+          <TopNav userEmail={user.email ?? ''} />
+          <div className="app-canvas flex-1">{children}</div>
+        </div>
+      </EditLessonDialogProvider>
     </LogTradePanelProvider>
   )
 }

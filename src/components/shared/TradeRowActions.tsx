@@ -3,9 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useFormState, useFormStatus } from 'react-dom'
 
-import { twMerge } from 'tailwind-merge'
-
-import { deleteTradeAction, editLessonAction } from '@/app/actions/trade'
+import { deleteTradeAction } from '@/app/actions/trade'
 import {
   initialTradeActionState,
   type TradeActionState,
@@ -13,9 +11,9 @@ import {
 import { Button } from '@/components/ui/Button'
 import { Dialog } from '@/components/ui/Dialog'
 import { StatusDot } from '@/components/ui/StatusDot'
-import { Textarea } from '@/components/ui/Textarea'
 import type { Trade } from '@/lib/trade-helpers'
 
+import { useEditLessonDialog } from './EditLessonDialogContext'
 import { useLogTradePanel } from './LogTradePanelContext'
 
 type Props = {
@@ -52,27 +50,11 @@ function DeleteSubmit({ children }: { children: React.ReactNode }) {
   )
 }
 
-function LessonSubmit() {
-  const { pending } = useFormStatus()
-  return (
-    <Button type="submit" disabled={pending} className="w-auto px-4">
-      {pending ? (
-        <>
-          <StatusDot tone="accent" pulse />
-          <span>Saving</span>
-        </>
-      ) : (
-        <span>Save lesson</span>
-      )}
-    </Button>
-  )
-}
-
 export function TradeRowActions({ trade }: Props) {
   const { open: openPanel } = useLogTradePanel()
+  const { openEditLesson } = useEditLessonDialog()
   const [menuOpen, setMenuOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const [editLesson, setEditLesson] = useState(false)
   const wrapperRef = useRef<HTMLDivElement | null>(null)
 
   const isOpen = trade.outcome === 'open'
@@ -98,24 +80,23 @@ export function TradeRowActions({ trade }: Props) {
     deleteTradeAction,
     initialTradeActionState,
   )
-  const [lessonState, lessonAction] = useFormState<TradeActionState, FormData>(
-    editLessonAction,
-    initialTradeActionState,
-  )
 
   useEffect(() => {
     if (deleteState.status === 'success') setConfirmDelete(false)
   }, [deleteState])
 
-  useEffect(() => {
-    if (lessonState.status === 'success') setEditLesson(false)
-  }, [lessonState])
-
   return (
-    <div ref={wrapperRef} className="relative">
+    <div
+      ref={wrapperRef}
+      className="relative"
+      onClick={(e) => e.stopPropagation()}
+    >
       <button
         type="button"
-        onClick={() => setMenuOpen((p) => !p)}
+        onClick={(e) => {
+          e.stopPropagation()
+          setMenuOpen((p) => !p)
+        }}
         aria-haspopup="menu"
         aria-expanded={menuOpen}
         className="rounded-md p-1.5 text-white/45 transition-colors duration-200 hover:bg-surface-2 hover:text-white"
@@ -125,7 +106,7 @@ export function TradeRowActions({ trade }: Props) {
       {menuOpen ? (
         <div
           role="menu"
-          className="absolute right-0 top-full z-10 mt-1 min-w-[160px] rounded-md border border-white/[0.06] bg-surface bg-panel-lit p-1"
+          className="absolute right-0 top-full z-40 mt-1 min-w-[160px] rounded-md border border-white/[0.06] bg-surface bg-panel-lit p-1"
         >
           {isOpen ? (
             <button
@@ -153,7 +134,11 @@ export function TradeRowActions({ trade }: Props) {
               type="button"
               onClick={() => {
                 setMenuOpen(false)
-                setEditLesson(true)
+                openEditLesson({
+                  trade_id: trade.id,
+                  asset_symbol: trade.asset_symbol,
+                  lesson: trade.lesson,
+                })
               }}
               className="block w-full rounded-md px-3 py-2 text-left text-sm text-white/70 transition-colors duration-200 hover:bg-surface-2 hover:text-white"
             >
@@ -197,39 +182,6 @@ export function TradeRowActions({ trade }: Props) {
         {deleteState.status === 'error' ? (
           <p className="text-sm text-negative">{deleteState.message}</p>
         ) : null}
-      </Dialog>
-
-      <Dialog
-        open={editLesson}
-        onClose={() => setEditLesson(false)}
-        title="Edit lesson"
-        description="Capture what you learned from this trade."
-      >
-        <form action={lessonAction} className="space-y-4">
-          <input type="hidden" name="trade_id" value={trade.id} />
-          <Textarea
-            name="lesson"
-            rows={4}
-            defaultValue={trade.lesson ?? ''}
-            placeholder="What did you learn?"
-          />
-          {lessonState.status === 'error' ? (
-            <p className={twMerge('text-sm text-negative')}>
-              {lessonState.message}
-            </p>
-          ) : null}
-          <div className="flex items-center justify-end gap-3">
-            <Button
-              type="button"
-              variant="ghost"
-              className="w-auto px-4"
-              onClick={() => setEditLesson(false)}
-            >
-              Cancel
-            </Button>
-            <LessonSubmit />
-          </div>
-        </form>
       </Dialog>
     </div>
   )

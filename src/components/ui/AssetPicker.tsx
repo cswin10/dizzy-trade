@@ -124,8 +124,11 @@ export function AssetPicker({
   }
 
   const inputId = useMemo(() => name ?? 'asset-picker', [name])
-  const showDropdown =
-    open && (results.length > 0 || loading) && query.trim().length > 0
+  // Keep the dropdown open whenever the input has content and focus. If
+  // the search turned up nothing we show a "No matches" row rather than
+  // collapsing the panel, otherwise the UI flickers between visible and
+  // hidden whilst the user keeps typing.
+  const showDropdown = open && query.trim().length > 0
 
   return (
     <div ref={wrapperRef} className="flex flex-col gap-2">

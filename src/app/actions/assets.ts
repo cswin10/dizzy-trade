@@ -15,6 +15,13 @@ const MAX_RESULTS = 20
 // reference data), so any authenticated caller can query. We still use
 // the user-scoped server client so that an unauthenticated request would
 // fail cleanly.
+//
+// Uses two separate `.ilike()` queries in parallel and merges the result
+// client-side. An earlier attempt used `.or('symbol.ilike.x,name.ilike.y')`
+// but PostgREST's filter-string grammar is finicky about wildcards inside
+// OR expressions (`%` vs `*` depending on version), and silently returned
+// zero rows under the current Supabase version. Two direct `.ilike()`
+// calls avoid that minefield entirely.
 export async function searchAssets(query: string): Promise<AssetResult[]> {
   const trimmed = query.trim()
   if (trimmed.length === 0) return []
@@ -25,27 +32,61 @@ export async function searchAssets(query: string): Promise<AssetResult[]> {
   } = await supabase.auth.getUser()
   if (!user) return []
 
-  // PostgREST's `.or()` filter string uses `*` as the ilike wildcard, not
-  // `%`. Using `%` here silently returns zero rows because the literal
-  // percent survives URL decoding and never matches a regular symbol.
-  const symbolPattern = `${trimmed}*`
-  const namePattern = `*${trimmed}*`
+  const [symbolMatches, nameMatches] = await Promise.all([
+    supabase
+      .from('assets_reference')
+      .select('coingecko_id, symbol, name, market_cap_rank')
+      .ilike('symbol', `${trimmed}%`)
+      .order('market_cap_rank', { ascending: true, nullsFirst: false })
+      .limit(MAX_RESULTS),
+    supabase
+      .from('assets_reference')
+      .select('coingecko_id, symbol, name, market_cap_rank')
+      .ilike('name', `%${trimmed}%`)
+      .order('market_cap_rank', { ascending: true, nullsFirst: false })
+      .limit(MAX_RESULTS),
+  ])
 
-  const { data, error } = await supabase
-    .from('assets_reference')
-    .select('coingecko_id, symbol, name, market_cap_rank')
-    .or(`symbol.ilike.${symbolPattern},name.ilike.${namePattern}`)
-    .order('market_cap_rank', { ascending: true, nullsFirst: false })
-    .limit(MAX_RESULTS)
-
-  if (error) {
-    console.error('[searchAssets] failed:', error.message)
-    return []
+  if (symbolMatches.error) {
+    console.error(
+      '[searchAssets] symbol query failed:',
+      symbolMatches.error.message,
+    )
+  }
+  if (nameMatches.error) {
+    console.error(
+      '[searchAssets] name query failed:',
+      nameMatches.error.message,
+    )
   }
 
-  console.log(`[searchAssets] query="${trimmed}" matched=${data?.length ?? 0}`)
+  const seen = new Set<string>()
+  const merged: AssetResult[] = []
+  for (const row of symbolMatches.data ?? []) {
+    if (seen.has(row.coingecko_id)) continue
+    seen.add(row.coingecko_id)
+    merged.push(row as AssetResult)
+  }
+  for (const row of nameMatches.data ?? []) {
+    if (seen.has(row.coingecko_id)) continue
+    seen.add(row.coingecko_id)
+    merged.push(row as AssetResult)
+  }
 
-  return (data ?? []) as AssetResult[]
+  merged.sort((a, b) => {
+    const ar = a.market_cap_rank
+    const br = b.market_cap_rank
+    if (ar === null && br === null) return 0
+    if (ar === null) return 1
+    if (br === null) return -1
+    return ar - br
+  })
+
+  const limited = merged.slice(0, MAX_RESULTS)
+  console.log(
+    `[searchAssets] query="${trimmed}" symbol=${symbolMatches.data?.length ?? 0} name=${nameMatches.data?.length ?? 0} merged=${limited.length}`,
+  )
+  return limited
 }
 
 export type PriceResult = { price: number } | { error: string }
