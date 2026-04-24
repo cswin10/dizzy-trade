@@ -253,6 +253,57 @@ export type Database = {
         }
         Relationships: []
       }
+      framework_thresholds: {
+        Row: {
+          id: string
+          framework_id: string
+          key: string
+          value: number
+          description: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          id?: string
+          framework_id: string
+          key: string
+          value: number
+          description?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          id?: string
+          framework_id?: string
+          key?: string
+          value?: number
+          description?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      narrative_tags: {
+        Row: {
+          id: string
+          symbol: string
+          heat_level: 'hot' | 'warm' | 'cool' | 'cold'
+          note: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          id?: string
+          symbol: string
+          heat_level: 'hot' | 'warm' | 'cool' | 'cold'
+          note?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          id?: string
+          symbol?: string
+          heat_level?: 'hot' | 'warm' | 'cool' | 'cold'
+          note?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       alerts: {
         Row: {
           id: string

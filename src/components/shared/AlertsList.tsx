@@ -232,6 +232,7 @@ function AlertCard({ alert }: { alert: AlertRow }) {
                   entry_price: alert.suggested_entry ?? undefined,
                   suggested_stop: alert.suggested_stop ?? undefined,
                   suggested_target: alert.suggested_target ?? undefined,
+                  framework_id: alert.framework_id,
                   setup_type: FRAMEWORK_SETUP_HINT[alert.framework_id],
                   thesis: formatThesis(alert, frameworkLabel),
                 })

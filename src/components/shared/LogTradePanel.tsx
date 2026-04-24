@@ -39,8 +39,19 @@ type Prefill = {
   setup_type?: string
   thesis?: string
   alert_id?: string
+  framework_id?: string
+  framework_name?: string
   suggested_stop?: number
   suggested_target?: number
+}
+
+// Maps scanner framework IDs to the human-readable setup_type strings
+// used by the SETUP_TYPES taxonomy. When an alert is opened in the
+// panel we pre-select the setup so the trader doesn't have to.
+const FRAMEWORK_TO_SETUP: Record<string, SetupType> = {
+  liquidation_hunt_v1: 'Liquidation hunt',
+  narrative_breakout_v1: 'Narrative breakout',
+  mean_reversion_v1: 'Mean reversion',
 }
 
 type Direction = 'long' | 'short'
@@ -178,6 +189,33 @@ function matchSetup(value: string | undefined): SetupType | undefined {
     : undefined
 }
 
+function resolveSetup(prefill: Prefill | undefined): SetupType | undefined {
+  const direct = matchSetup(prefill?.setup_type)
+  if (direct) return direct
+  const fromFramework = prefill?.framework_id
+    ? FRAMEWORK_TO_SETUP[prefill.framework_id]
+    : undefined
+  return fromFramework
+}
+
+// The create form has no dedicated stop/target inputs, so we append the
+// suggested levels to the thesis when the alert carries them. If the
+// thesis already mentions "stop" or "target" we leave it alone so the
+// alert source's wording wins.
+function augmentThesis(prefill: Prefill | undefined): string {
+  const base = prefill?.thesis ?? ''
+  const stop = prefill?.suggested_stop
+  const target = prefill?.suggested_target
+  if (stop === undefined && target === undefined) return base
+  if (/stop|target/i.test(base)) return base
+  const parts: string[] = []
+  if (stop !== undefined) parts.push(`stop ${stop}`)
+  if (target !== undefined) parts.push(`target ${target}`)
+  if (parts.length === 0) return base
+  const suffix = `Suggested ${parts.join(', ')}.`
+  return base ? `${base} ${suffix}` : suffix
+}
+
 function CreateTradeForm({
   prefill,
   onSuccess,
@@ -197,7 +235,7 @@ function CreateTradeForm({
     matchNarrative(prefill?.narrative_tag),
   )
   const [setup, setSetup] = useState<SetupType | undefined>(
-    matchSetup(prefill?.setup_type),
+    resolveSetup(prefill),
   )
   const [venue, setVenue] = useState(prefill?.venue ?? '')
   const [entrySize, setEntrySize] = useState(
@@ -368,7 +406,7 @@ function CreateTradeForm({
             rows={4}
             placeholder="Why are you taking this trade?"
             maxLength={2000}
-            defaultValue={prefill?.thesis ?? ''}
+            defaultValue={augmentThesis(prefill)}
           />
         </section>
 
