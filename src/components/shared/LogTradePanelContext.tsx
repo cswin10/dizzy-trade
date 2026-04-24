@@ -24,6 +24,8 @@ export type LogTradePrefill = {
   setup_type?: string
   thesis?: string
   alert_id?: string
+  framework_id?: string
+  framework_name?: string
   suggested_stop?: number
   suggested_target?: number
 }

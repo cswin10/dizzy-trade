@@ -4,13 +4,16 @@
 //   1. load the active universe
 //   2. bulk-fetch current market data from Hyperliquid
 //   3. write one market_snapshots row per pair (rolling history)
-//   4. fetch any additional per-pair data the frameworks need, with
+//   4. load framework thresholds and narrative tags from the database
+//   5. fetch BTC 4h candles once for the outperformance baseline
+//   6. fetch any additional per-pair data the frameworks need, with
 //      bounded concurrency so we don't blow rate limits
-//   5. evaluate every framework against every pair
-//   6. insert alerts and fire Telegram notifications for watchlist hits
+//   7. evaluate every framework against every pair using per-framework
+//      thresholds; emit alerts for triggers
 //
 // Errors on a single pair are logged and swallowed so the rest of the
-// scan still runs.
+// scan still runs. A soft 45s and hard 55s time budget caps the per-tick
+// work so cron doesn't pile up if Hyperliquid is slow.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.46.1'
 
@@ -26,10 +29,13 @@ import type {
   DataRequirements,
   Framework,
   MarketSnapshot,
+  NarrativeHeat,
 } from '../_shared/frameworks/types.ts'
 
 const CONCURRENCY = 5
 const HISTORY_WINDOW_MINUTES = 60 * 24 // 24 hours
+const SOFT_BUDGET_MS = 45_000
+const HARD_BUDGET_MS = 55_000
 const APP_URL =
   Deno.env.get('DIZZY_TRADE_APP_URL') ?? 'https://dizzy-trade.vercel.app'
 
@@ -44,6 +50,8 @@ type AggregatedRequirements = {
   needsCandles4h: boolean
   needsOiHistory: boolean
   needsFundingHistory: boolean
+  needsNarrativeHeat: boolean
+  needsBtcReturn24h: boolean
 }
 
 function aggregateRequirements(
@@ -54,6 +62,8 @@ function aggregateRequirements(
     needsCandles4h: false,
     needsOiHistory: false,
     needsFundingHistory: false,
+    needsNarrativeHeat: false,
+    needsBtcReturn24h: false,
   }
   for (const f of frameworks) {
     const r: DataRequirements = f.dataRequirements
@@ -61,6 +71,8 @@ function aggregateRequirements(
     if (r.needsCandles4h) out.needsCandles4h = true
     if (r.needsOiHistory) out.needsOiHistory = true
     if (r.needsFundingHistory) out.needsFundingHistory = true
+    if (r.needsNarrativeHeat) out.needsNarrativeHeat = true
+    if (r.needsBtcReturn24h) out.needsBtcReturn24h = true
   }
   return out
 }
@@ -111,6 +123,61 @@ async function loadUniverse(): Promise<UniverseRow[]> {
     .eq('is_active', true)
   if (error) throw new Error(`universe load failed: ${error.message}`)
   return (data ?? []) as UniverseRow[]
+}
+
+// Nested map: framework_id -> key -> value. Frameworks that have no row
+// in the table get an empty inner map and will error on missing keys,
+// which surfaces quickly in logs without silently misfiring.
+async function loadThresholds(): Promise<Map<string, Record<string, number>>> {
+  const client = supabase()
+  const { data, error } = await client
+    .from('framework_thresholds')
+    .select('framework_id, key, value')
+  if (error) {
+    throw new Error(`threshold load failed: ${error.message}`)
+  }
+  const out = new Map<string, Record<string, number>>()
+  for (const row of data ?? []) {
+    const frameworkId = String(row.framework_id)
+    const bucket = out.get(frameworkId) ?? {}
+    bucket[String(row.key)] = Number(row.value)
+    out.set(frameworkId, bucket)
+  }
+  return out
+}
+
+async function loadNarrativeHeat(): Promise<Map<string, NarrativeHeat>> {
+  const client = supabase()
+  const { data, error } = await client
+    .from('narrative_tags')
+    .select('symbol, heat_level')
+  if (error) {
+    console.warn(`[scanner] narrative load failed: ${error.message}`)
+    return new Map()
+  }
+  const out = new Map<string, NarrativeHeat>()
+  for (const row of data ?? []) {
+    out.set(String(row.symbol), row.heat_level as NarrativeHeat)
+  }
+  return out
+}
+
+// Price return over the last 24h using 4h candles. 6 bars back gives
+// the close 24h ago. Returns 0 if the data isn't there so downstream
+// conditions degrade gracefully rather than triggering.
+async function loadBtcReturn24h(): Promise<number> {
+  try {
+    const candles = await getCandles('BTC', '4h', 10)
+    if (candles.length < 7) return 0
+    const latest = candles[candles.length - 1]!.c
+    const ref = candles[candles.length - 7]!.c
+    if (ref <= 0) return 0
+    return (latest - ref) / ref
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(`[scanner] BTC baseline failed: ${message}`)
+    return 0
+  }
 }
 
 type SnapshotInsert = {
@@ -199,6 +266,7 @@ async function runScan(): Promise<{
   scanned: number
   triggered: number
   durationMs: number
+  truncated: boolean
 }> {
   const started = Date.now()
 
@@ -225,6 +293,17 @@ async function runScan(): Promise<{
   }
   await writeSnapshots(snapshots)
 
+  // Config and baselines. Thresholds fail the whole scan if missing
+  // (frameworks cannot run without their tuning); narrative and BTC
+  // baseline degrade to empty/zero so the rest of the scan still works.
+  const [thresholds, narrativeHeatMap, btcReturn24h] = await Promise.all([
+    loadThresholds(),
+    requirements.needsNarrativeHeat
+      ? loadNarrativeHeat()
+      : Promise.resolve(new Map<string, NarrativeHeat>()),
+    requirements.needsBtcReturn24h ? loadBtcReturn24h() : Promise.resolve(0),
+  ])
+
   // Rolling history load (one round-trip for all symbols).
   const history =
     requirements.needsOiHistory || requirements.needsFundingHistory
@@ -241,8 +320,21 @@ async function runScan(): Promise<{
   })
 
   let triggered = 0
+  let truncated = false
+  let softBudgetLogged = false
 
   await pMap(tasks, CONCURRENCY, async (task) => {
+    const elapsed = Date.now() - started
+    if (elapsed > HARD_BUDGET_MS) {
+      truncated = true
+      return
+    }
+    if (elapsed > SOFT_BUDGET_MS && !softBudgetLogged) {
+      console.warn(
+        `[scanner] soft time budget exceeded at ${elapsed}ms, continuing`,
+      )
+      softBudgetLogged = true
+    }
     try {
       let candles1h: Candle[] | undefined
       let candles4h: Candle[] | undefined
@@ -253,6 +345,7 @@ async function runScan(): Promise<{
         candles4h = await getCandles(task.symbol, '4h', 100)
       }
       const bucket = history.get(task.symbol)
+      const heat = narrativeHeatMap.get(task.symbol) ?? 'cool'
       const snapshot: MarketSnapshot = {
         symbol: task.symbol,
         markPrice: task.market.markPrice,
@@ -263,12 +356,15 @@ async function runScan(): Promise<{
         candles4h,
         fundingHistory: bucket?.funding ?? [],
         oiHistory: bucket?.oi ?? [],
+        narrativeHeat: heat,
+        btcReturn24h,
       }
 
       for (const framework of FRAMEWORKS.values()) {
+        const frameworkThresholds = thresholds.get(framework.id) ?? {}
         let result
         try {
-          result = framework.evaluate(snapshot)
+          result = framework.evaluate(snapshot, frameworkThresholds)
         } catch (error) {
           console.error(
             `[scanner] ${framework.id} threw for ${task.symbol}:`,
@@ -326,6 +422,7 @@ async function runScan(): Promise<{
     scanned: tasks.length,
     triggered,
     durationMs: Date.now() - started,
+    truncated,
   }
 }
 
@@ -333,7 +430,7 @@ Deno.serve(async () => {
   try {
     const summary = await runScan()
     console.log(
-      `[scanner] scanned=${summary.scanned} triggered=${summary.triggered} durationMs=${summary.durationMs}`,
+      `[scanner] scanned=${summary.scanned} triggered=${summary.triggered} durationMs=${summary.durationMs}${summary.truncated ? ' truncated=1' : ''}`,
     )
     return new Response(JSON.stringify({ ok: true, ...summary }), {
       status: 200,
