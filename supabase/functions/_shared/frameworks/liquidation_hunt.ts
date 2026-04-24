@@ -9,12 +9,13 @@ import type { Framework, FrameworkResult, MarketSnapshot } from './types.ts'
 // back as the imbalance clears.
 //
 // All four conditions must hold for the alert to fire.
-
-const FUNDING_THRESHOLD = 0.0001 // 1 bp per hour (Hyperliquid funding is hourly)
-const OI_MULTIPLIER = 1.3 // 30% above 24h rolling average
-const WICK_BODY_RATIO = 1.5 // wick must be at least 1.5x the candle body
-const STOP_BUFFER = 0.002 // 0.2% buffer beyond the wick extreme
-const TARGET_R_MULTIPLE = 2 // target at 2R
+//
+// Thresholds (loaded at runtime from framework_thresholds):
+//   funding_threshold       absolute hourly funding floor
+//   oi_elevation_multiplier OI must exceed this multiple of 24h avg
+//   wick_to_body_ratio      rejection wick / body
+//   stop_buffer             fractional buffer beyond wick extreme
+//   target_rr_multiple      R multiple for target
 
 export const liquidationHuntFramework: Framework = {
   id: 'liquidation_hunt_v1',
@@ -26,7 +27,16 @@ export const liquidationHuntFramework: Framework = {
     needsFundingHistory: false,
     needsOiHistory: true,
   },
-  evaluate(snapshot: MarketSnapshot): FrameworkResult {
+  evaluate(
+    snapshot: MarketSnapshot,
+    thresholds: Record<string, number>,
+  ): FrameworkResult {
+    const fundingThreshold = thresholds.funding_threshold!
+    const oiMultiplier = thresholds.oi_elevation_multiplier!
+    const wickBodyRatio = thresholds.wick_to_body_ratio!
+    const stopBuffer = thresholds.stop_buffer!
+    const targetRMultiple = thresholds.target_rr_multiple!
+
     const conditionValues: Record<string, number | string | boolean> = {
       funding: snapshot.funding,
       openInterest: snapshot.openInterest,
@@ -37,8 +47,8 @@ export const liquidationHuntFramework: Framework = {
     // up by crowded longs. Negative is the mirror.
     const absFunding = Math.abs(snapshot.funding)
     conditionValues.absFunding = absFunding
-    conditionValues.fundingThreshold = FUNDING_THRESHOLD
-    if (absFunding <= FUNDING_THRESHOLD) {
+    conditionValues.fundingThreshold = fundingThreshold
+    if (absFunding <= fundingThreshold) {
       return { triggered: false, conditionValues }
     }
 
@@ -56,7 +66,7 @@ export const liquidationHuntFramework: Framework = {
     conditionValues.oiAvg24h = oiAvg
     conditionValues.oiRatio = oiRatio
     conditionValues.oiDeltaPct = oiDeltaPct
-    if (oiRatio < OI_MULTIPLIER) {
+    if (oiRatio < oiMultiplier) {
       return { triggered: false, conditionValues }
     }
 
@@ -94,7 +104,7 @@ export const liquidationHuntFramework: Framework = {
       direction = 'short'
       const wickRatio = upperWick / effectiveBody
       conditionValues.wickRatio = wickRatio
-      if (wickRatio < WICK_BODY_RATIO) {
+      if (wickRatio < wickBodyRatio) {
         return { triggered: false, conditionValues }
       }
       rejected = candle.c < candle.h
@@ -102,14 +112,14 @@ export const liquidationHuntFramework: Framework = {
       if (!rejected) {
         return { triggered: false, conditionValues }
       }
-      stop = candle.h * (1 + STOP_BUFFER)
+      stop = candle.h * (1 + stopBuffer)
     } else {
       // Negative funding: crowd is short, look for a lower wick that
       // rejected back up. Suggested trade is a long.
       direction = 'long'
       const wickRatio = lowerWick / effectiveBody
       conditionValues.wickRatio = wickRatio
-      if (wickRatio < WICK_BODY_RATIO) {
+      if (wickRatio < wickBodyRatio) {
         return { triggered: false, conditionValues }
       }
       rejected = candle.c > candle.l
@@ -117,15 +127,15 @@ export const liquidationHuntFramework: Framework = {
       if (!rejected) {
         return { triggered: false, conditionValues }
       }
-      stop = candle.l * (1 - STOP_BUFFER)
+      stop = candle.l * (1 - stopBuffer)
     }
 
     const entry = snapshot.markPrice
     const risk = Math.abs(entry - stop)
     const target =
       direction === 'short'
-        ? entry - risk * TARGET_R_MULTIPLE
-        : entry + risk * TARGET_R_MULTIPLE
+        ? entry - risk * targetRMultiple
+        : entry + risk * targetRMultiple
 
     return {
       triggered: true,

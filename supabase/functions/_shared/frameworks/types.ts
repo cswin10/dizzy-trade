@@ -1,5 +1,7 @@
 import type { Candle } from '../hyperliquid.ts'
 
+export type NarrativeHeat = 'hot' | 'warm' | 'cool' | 'cold'
+
 export type MarketSnapshot = {
   symbol: string
   markPrice: number
@@ -10,6 +12,8 @@ export type MarketSnapshot = {
   candles4h?: Candle[]
   fundingHistory?: number[]
   oiHistory?: number[]
+  narrativeHeat?: NarrativeHeat
+  btcReturn24h?: number
 }
 
 export type FrameworkResult = {
@@ -26,6 +30,8 @@ export type DataRequirements = {
   needsCandles4h?: boolean
   needsFundingHistory?: boolean
   needsOiHistory?: boolean
+  needsNarrativeHeat?: boolean
+  needsBtcReturn24h?: boolean
 }
 
 export type Framework = {
@@ -33,5 +39,8 @@ export type Framework = {
   name: string
   description: string
   dataRequirements: DataRequirements
-  evaluate(snapshot: MarketSnapshot): FrameworkResult
+  evaluate(
+    snapshot: MarketSnapshot,
+    thresholds: Record<string, number>,
+  ): FrameworkResult
 }
