@@ -1,8 +1,9 @@
 // AUTO-GENERATED. Do not edit. Run `npm run bundle:scanner` to regenerate.
-// Generated: 2026-04-25T10:39:31.979Z
+// Generated: 2026-04-25T11:09:26.882Z
 //
 // Source files (in dependency order):
 //   supabase/functions/_shared/hyperliquid.ts
+//   supabase/functions/_shared/rules.ts
 //   supabase/functions/_shared/telegram.ts
 //   supabase/functions/_shared/frameworks/types.ts
 //   supabase/functions/_shared/frameworks/liquidation_hunt.ts
@@ -177,12 +178,195 @@ async function getCandles(
 }
 
 // ---------------------------------------------------------------------
+// supabase/functions/_shared/rules.ts
+// ---------------------------------------------------------------------
+
+// Rules evaluation library shared between the scanner Edge Function
+// and the Next.js trade-submission server action.
+//
+// Kept in lockstep with src/lib/rules.ts: same types, same logic, same
+// numeric thresholds. If you touch one, touch the other.
+//
+// The library is pure: no I/O, no environment globals. Callers are
+// responsible for loading the strategy, the live state, and the
+// proposed trade values, then handing them in as a self-contained
+// RulesContext.
+
+type RuleId =
+  | 'max_concurrent'
+  | 'max_daily_loss'
+  | 'consecutive_losers_pause'
+  | 'rr_below_min'
+  | 'risk_amount_mismatch'
+
+type RuleSeverity = 'block' | 'warn'
+
+type RuleViolation = {
+  rule: RuleId
+  severity: RuleSeverity
+  reason: string
+  current_value: number | string
+  limit_value: number | string
+}
+
+type RulesStatus = 'passed' | 'blocked' | 'warning'
+
+type RulesResult = {
+  status: RulesStatus
+  violations: RuleViolation[]
+}
+
+type RulesContext = {
+  strategy: {
+    risk_amount_gbp: number
+    min_rr: number
+    max_concurrent_positions: number
+    max_daily_loss_gbp: number | null
+    max_consecutive_losers: number | null
+  }
+  proposedTrade: {
+    // null when the caller could not compute the value (e.g. the
+    // trade form does not collect a stop, so rr_ratio is unavailable
+    // at submission time). Rules that depend on the missing value
+    // are silently skipped.
+    risk_amount_gbp: number | null
+    rr_ratio: number | null
+  }
+  currentState: {
+    open_positions_count: number
+    today_realised_pnl_gbp: number // signed; -50 means down £50
+    consecutive_losers_count: number
+    last_loss_at: Date | null
+  }
+}
+
+const MS_24H = 24 * 60 * 60 * 1000
+const RISK_MISMATCH_TOLERANCE_GBP = 0.5
+
+function fmtGbp(value: number): string {
+  return `£${Math.abs(value).toFixed(0)}`
+}
+
+function fmtSignedGbp(value: number): string {
+  return value >= 0
+    ? `up £${value.toFixed(0)}`
+    : `down £${Math.abs(value).toFixed(0)}`
+}
+
+/**
+ * Evaluates the configured rules against a proposed trade. Returns a
+ * RulesResult whose `status` is the worst severity encountered:
+ * 'blocked' if any rule fired with severity 'block', 'warning' if
+ * only warnings, 'passed' otherwise.
+ */
+function evaluateRules(ctx: RulesContext): RulesResult {
+  const violations: RuleViolation[] = []
+  const { strategy, proposedTrade, currentState } = ctx
+
+  // 1. Max concurrent positions.
+  if (currentState.open_positions_count >= strategy.max_concurrent_positions) {
+    violations.push({
+      rule: 'max_concurrent',
+      severity: 'block',
+      reason: `Max concurrent positions reached (${currentState.open_positions_count} of ${strategy.max_concurrent_positions} open)`,
+      current_value: currentState.open_positions_count,
+      limit_value: strategy.max_concurrent_positions,
+    })
+  }
+
+  // 2. Daily loss cap. Skipped when no cap is set or when no trade
+  // risk was supplied (the form gate may not have a meaningful risk
+  // figure yet).
+  if (
+    strategy.max_daily_loss_gbp != null &&
+    proposedTrade.risk_amount_gbp != null
+  ) {
+    const projectedDownsideGbp =
+      proposedTrade.risk_amount_gbp - currentState.today_realised_pnl_gbp
+    if (projectedDownsideGbp > strategy.max_daily_loss_gbp) {
+      violations.push({
+        rule: 'max_daily_loss',
+        severity: 'block',
+        reason: `Daily loss cap would be exceeded (currently ${fmtSignedGbp(currentState.today_realised_pnl_gbp)}, this trade risks ${fmtGbp(proposedTrade.risk_amount_gbp)}, cap is ${fmtGbp(strategy.max_daily_loss_gbp)})`,
+        current_value: currentState.today_realised_pnl_gbp,
+        limit_value: strategy.max_daily_loss_gbp,
+      })
+    }
+  }
+
+  // 3. Consecutive losers cool-down. Only fires when the most recent
+  // loss is within the last 24h; if the trader has stepped away long
+  // enough, the streak no longer pauses new entries.
+  if (
+    strategy.max_consecutive_losers != null &&
+    currentState.consecutive_losers_count >= strategy.max_consecutive_losers &&
+    currentState.last_loss_at !== null
+  ) {
+    const elapsedMs = Date.now() - currentState.last_loss_at.getTime()
+    if (elapsedMs < MS_24H) {
+      const elapsedHours = Math.floor(elapsedMs / (60 * 60 * 1000))
+      const remainingHours = Math.max(0, 24 - elapsedHours)
+      violations.push({
+        rule: 'consecutive_losers_pause',
+        severity: 'block',
+        reason: `Cooling off after ${currentState.consecutive_losers_count} consecutive losses (last loss ${elapsedHours} hour${elapsedHours === 1 ? '' : 's'} ago, ${remainingHours} hour${remainingHours === 1 ? '' : 's'} remaining)`,
+        current_value: currentState.consecutive_losers_count,
+        limit_value: strategy.max_consecutive_losers,
+      })
+    }
+  }
+
+  // 4. Risk-reward floor. Skipped when the caller could not compute
+  // an RR (e.g. trade form without a stop value).
+  if (proposedTrade.rr_ratio != null) {
+    if (proposedTrade.rr_ratio < strategy.min_rr) {
+      violations.push({
+        rule: 'rr_below_min',
+        severity: 'block',
+        reason: `Risk-reward below minimum (${proposedTrade.rr_ratio.toFixed(1)}:1 vs required ${strategy.min_rr.toFixed(1)}:1)`,
+        current_value: Number(proposedTrade.rr_ratio.toFixed(2)),
+        limit_value: strategy.min_rr,
+      })
+    }
+  }
+
+  // 5. Risk amount drift. Warning only: the trader can override the
+  // strategy's nominal risk if they have a reason, but we surface
+  // the discrepancy.
+  if (proposedTrade.risk_amount_gbp != null) {
+    const diff = Math.abs(
+      proposedTrade.risk_amount_gbp - strategy.risk_amount_gbp,
+    )
+    if (diff > RISK_MISMATCH_TOLERANCE_GBP) {
+      violations.push({
+        rule: 'risk_amount_mismatch',
+        severity: 'warn',
+        reason: `Trade risk differs from strategy (${fmtGbp(proposedTrade.risk_amount_gbp)} vs ${fmtGbp(strategy.risk_amount_gbp)})`,
+        current_value: proposedTrade.risk_amount_gbp,
+        limit_value: strategy.risk_amount_gbp,
+      })
+    }
+  }
+
+  const hasBlock = violations.some((v) => v.severity === 'block')
+  const hasWarn = violations.some((v) => v.severity === 'warn')
+  const status: RulesStatus = hasBlock
+    ? 'blocked'
+    : hasWarn
+      ? 'warning'
+      : 'passed'
+
+  return { status, violations }
+}
+
+// ---------------------------------------------------------------------
 // supabase/functions/_shared/telegram.ts
 // ---------------------------------------------------------------------
 
 // Deno runtime Telegram notifier. Opt-in via env: if the token or chat
 // id are unset we return false and skip the notification, so a
 // partially-configured deployment still runs cleanly.
+
 
 type TelegramAlertPayload = {
   framework_name: string
@@ -200,6 +384,8 @@ type TelegramAlertPayload = {
   riskAmountGbp?: number | null
   validUntil?: Date | null
   timeframe?: '15m' | '1h' | '4h' | '1d' | null
+  rulesStatus?: RulesStatus | null
+  rulesViolations?: RuleViolation[] | null
 }
 
 function pct(x: number, digits = 2): string {
@@ -251,6 +437,27 @@ function formatValidUntil(validUntil: Date, timeframe: string | null): string {
   return `${hh}:${mm} UTC${tfLabel}`
 }
 
+function rulesHeaderPrefix(status: RulesStatus | null | undefined): {
+  emoji: string
+  suffix: string
+} {
+  if (status === 'blocked') return { emoji: '🛑', suffix: ' BLOCKED' }
+  return { emoji: '🚨', suffix: '' }
+}
+
+function rulesSummaryLine(
+  status: RulesStatus | null | undefined,
+  violations: RuleViolation[] | null | undefined,
+): string | null {
+  if (!status || status === 'passed' || !violations || violations.length === 0)
+    return null
+  const reasons = violations.map((v) => v.reason).join('; ')
+  if (status === 'blocked') {
+    return `🛑 *Rules blocked*: ${escapeMarkdown(reasons)}`
+  }
+  return `⚠️ *Rules warning*: ${escapeMarkdown(reasons)}`
+}
+
 function formatAlertMessage(alert: TelegramAlertPayload): string {
   const dirLabel = alert.direction.toUpperCase()
   const fundingLabel = pct(alert.funding, 3)
@@ -271,8 +478,9 @@ function formatAlertMessage(alert: TelegramAlertPayload): string {
     return `Target: ${alert.target.toLocaleString(undefined, { maximumFractionDigits: 6 })}${tail}`
   })()
 
+  const header = rulesHeaderPrefix(alert.rulesStatus)
   const lines: string[] = [
-    `🚨 *${escapeMarkdown(alert.framework_name)}* — *${escapeMarkdown(alert.symbol)}*`,
+    `${header.emoji} *${escapeMarkdown(alert.framework_name)}${header.suffix}* — *${escapeMarkdown(alert.symbol)}*`,
     `Direction: *${dirLabel}*`,
     `Entry: ${alert.entry.toLocaleString(undefined, { maximumFractionDigits: 6 })}`,
     stopLine,
@@ -294,6 +502,12 @@ function formatAlertMessage(alert: TelegramAlertPayload): string {
       const warn = lev > 100 ? ' ⚠️ HIGH LEVERAGE' : ''
       lines.push(`Leverage: ${lev}x${warn}`)
     }
+  }
+
+  const rulesLine = rulesSummaryLine(alert.rulesStatus, alert.rulesViolations)
+  if (rulesLine) {
+    lines.push('')
+    lines.push(rulesLine)
   }
 
   if (alert.validUntil) {
@@ -1424,7 +1638,18 @@ type StrategyRow = {
   timeframe: Timeframe__index
   pair_symbols: string[]
   risk_amount_gbp: number
+  min_rr: number
+  max_concurrent_positions: number
+  max_daily_loss_gbp: number | null
+  max_consecutive_losers: number | null
   is_active: boolean
+}
+
+type RulesState = {
+  open_positions_count: number
+  today_realised_pnl_gbp: number
+  consecutive_losers_count: number
+  last_loss_at: Date | null
 }
 
 // Simple concurrency pool: run `fn` over every item, but never more than
@@ -1480,13 +1705,87 @@ async function loadActiveStrategies(): Promise<StrategyRow[]> {
   const { data, error } = await client
     .from('strategies')
     .select(
-      'id, name, framework_id, timeframe, pair_symbols, risk_amount_gbp, is_active',
+      'id, name, framework_id, timeframe, pair_symbols, risk_amount_gbp, min_rr, max_concurrent_positions, max_daily_loss_gbp, max_consecutive_losers, is_active',
     )
     .eq('is_active', true)
   if (error) {
     throw new Error(`strategies load failed: ${error.message}`)
   }
   return (data ?? []) as StrategyRow[]
+}
+
+// At scan time the scanner has no per-tenant context; for v1 with a
+// single trader we aggregate across all trades. When we go multi-user
+// this needs to scope by tenant.
+async function loadRulesState(): Promise<RulesState> {
+  const client = supabase()
+  const todayUtcStart = new Date()
+  todayUtcStart.setUTCHours(0, 0, 0, 0)
+
+  const [openRes, pnlRes, lastLossRes, recentLossesRes] = await Promise.all([
+    client
+      .from('trades')
+      .select('id', { count: 'exact', head: true })
+      .eq('outcome', 'open'),
+    client
+      .from('trades')
+      .select('pnl')
+      .in('outcome', ['win', 'loss', 'breakeven'])
+      .gte('exit_at', todayUtcStart.toISOString()),
+    client
+      .from('trades')
+      .select('exit_at')
+      .eq('outcome', 'loss')
+      .order('exit_at', { ascending: false })
+      .limit(1),
+    client
+      .from('trades')
+      .select('outcome, exit_at')
+      .in('outcome', ['win', 'loss', 'breakeven'])
+      .order('exit_at', { ascending: false })
+      .limit(20),
+  ])
+
+  const open_positions_count = openRes.count ?? 0
+
+  let today_realised_pnl_gbp = 0
+  for (const row of pnlRes.data ?? []) {
+    const pnl = row.pnl
+    if (typeof pnl === 'number' && Number.isFinite(pnl)) {
+      today_realised_pnl_gbp += pnl
+    }
+  }
+
+  let consecutive_losers_count = 0
+  for (const row of recentLossesRes.data ?? []) {
+    if (row.outcome === 'loss') consecutive_losers_count++
+    else break
+  }
+
+  let last_loss_at: Date | null = null
+  const lastLoss = lastLossRes.data?.[0]?.exit_at
+  if (typeof lastLoss === 'string') last_loss_at = new Date(lastLoss)
+
+  return {
+    open_positions_count,
+    today_realised_pnl_gbp,
+    consecutive_losers_count,
+    last_loss_at,
+  }
+}
+
+function computeRrRatio(
+  direction: 'long' | 'short' | undefined,
+  entry: number | null | undefined,
+  stop: number | null | undefined,
+  target: number | null | undefined,
+): number | null {
+  if (entry == null || stop == null || target == null) return null
+  if (!direction) return null
+  const risk = direction === 'long' ? entry - stop : stop - entry
+  const reward = direction === 'long' ? target - entry : entry - target
+  if (risk <= 0 || reward <= 0) return null
+  return reward / risk
 }
 
 // Nested map: framework_id -> key -> value. Frameworks that have no
@@ -1610,6 +1909,8 @@ type AlertInsert = {
   valid_until: string | null
   risk_amount_gbp: number | null
   gbp_usd_rate: number | null
+  rules_status: RulesStatus | null
+  rules_violations: RuleViolation[] | null
 }
 
 async function insertAlert(alert: AlertInsert): Promise<string | null> {
@@ -1649,6 +1950,7 @@ async function evaluateStrategy(args: {
   narrativeHeat: Map<string, NarrativeHeat>
   btcReturn24h: number
   gbpUsdRate: number
+  rulesState: RulesState
   scanStartedAt: number
   budgetState: { softLogged: boolean; truncated: boolean }
 }): Promise<StrategySummary> {
@@ -1661,6 +1963,7 @@ async function evaluateStrategy(args: {
     narrativeHeat,
     btcReturn24h,
     gbpUsdRate,
+    rulesState,
     scanStartedAt,
     budgetState,
   } = args
@@ -1755,6 +2058,28 @@ async function evaluateStrategy(args: {
     }
     const validUntil = nextCandleClose(strategy.timeframe)
 
+    const rrRatio = computeRrRatio(
+      result.suggestedDirection,
+      result.suggestedEntry,
+      result.suggestedStop,
+      result.suggestedTarget,
+    )
+    const rulesContext: RulesContext = {
+      strategy: {
+        risk_amount_gbp: strategy.risk_amount_gbp,
+        min_rr: strategy.min_rr,
+        max_concurrent_positions: strategy.max_concurrent_positions,
+        max_daily_loss_gbp: strategy.max_daily_loss_gbp,
+        max_consecutive_losers: strategy.max_consecutive_losers,
+      },
+      proposedTrade: {
+        risk_amount_gbp: strategy.risk_amount_gbp,
+        rr_ratio: rrRatio,
+      },
+      currentState: rulesState,
+    }
+    const rulesResult = evaluateRules(rulesContext)
+
     const alertId = await insertAlert({
       strategy_id: strategy.id,
       framework_id: framework.id,
@@ -1773,6 +2098,8 @@ async function evaluateStrategy(args: {
       valid_until: validUntil.toISOString(),
       risk_amount_gbp: strategy.risk_amount_gbp,
       gbp_usd_rate: gbpUsdRate,
+      rules_status: rulesResult.status,
+      rules_violations: rulesResult.violations,
     })
     if (!alertId) return
 
@@ -1802,6 +2129,8 @@ async function evaluateStrategy(args: {
         riskAmountGbp: strategy.risk_amount_gbp,
         validUntil,
         timeframe: strategy.timeframe,
+        rulesStatus: rulesResult.status,
+        rulesViolations: rulesResult.violations,
       })
       if (ok) await markNotified(alertId)
     }
@@ -1861,13 +2190,14 @@ async function runScan(): Promise<{
     for (const sym of s.pair_symbols) strategyPairs.add(sym)
   }
 
-  const [thresholds, narrativeHeat, btcReturn24h, history, gbpUsdRate] =
+  const [thresholds, narrativeHeat, btcReturn24h, history, gbpUsdRate, rulesState] =
     await Promise.all([
       loadThresholds(),
       loadNarrativeHeat(),
       loadBtcReturn24h(),
       loadHistory([...strategyPairs]),
       getGbpUsdRate(),
+      loadRulesState(),
     ])
 
   const budgetState = { softLogged: false, truncated: false }
@@ -1885,6 +2215,7 @@ async function runScan(): Promise<{
       narrativeHeat,
       btcReturn24h,
       gbpUsdRate,
+      rulesState,
       scanStartedAt: started,
       budgetState,
     })

@@ -77,11 +77,46 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   )
 }
 
-function ErrorBlock({ message }: { message: string }) {
+function ErrorBlock({
+  message,
+  violations,
+}: {
+  message: string
+  violations?: import('@/lib/rules').RuleViolation[]
+}) {
+  if (violations && violations.length > 0) {
+    return (
+      <div className="rounded-md border border-negative/30 bg-negative/10 px-3 py-2.5 text-sm text-negative">
+        <p className="font-medium">Trade blocked by your rules</p>
+        <ul className="mt-1.5 list-disc space-y-1 pl-5 text-[13px] text-negative/85">
+          {violations.map((v, idx) => (
+            <li key={`${v.rule}-${idx}`}>{v.reason}</li>
+          ))}
+        </ul>
+      </div>
+    )
+  }
   return (
     <div className="rounded-md border border-negative/30 bg-negative/10 px-3 py-2 text-sm text-negative">
       <span className="font-medium">Error</span>
       <span className="text-negative/80"> · {message}</span>
+    </div>
+  )
+}
+
+function WarningBlock({
+  violations,
+}: {
+  violations: import('@/lib/rules').RuleViolation[]
+}) {
+  return (
+    <div className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2.5 text-sm text-warning">
+      <p className="font-medium">Heads up</p>
+      <ul className="mt-1.5 list-disc space-y-1 pl-5 text-[13px] text-warning/85">
+        {violations.map((v, idx) => (
+          <li key={`${v.rule}-${idx}`}>{v.reason}</li>
+        ))}
+      </ul>
     </div>
   )
 }
@@ -285,7 +320,15 @@ function CreateTradeForm({
   })()
 
   useEffect(() => {
-    if (state.status === 'success') onSuccess()
+    // On a clean success the panel auto-closes. When the trade was
+    // accepted with a rules warning, we keep the panel open so the
+    // operator sees the heads-up and dismisses it explicitly.
+    if (
+      state.status === 'success' &&
+      (!state.warnings || state.warnings.length === 0)
+    ) {
+      onSuccess()
+    }
   }, [state, onSuccess])
 
   return (
@@ -461,7 +504,12 @@ function CreateTradeForm({
         </section>
 
         {state.status === 'error' ? (
-          <ErrorBlock message={state.message} />
+          <ErrorBlock message={state.message} violations={state.violations} />
+        ) : null}
+        {state.status === 'success' &&
+        state.warnings &&
+        state.warnings.length > 0 ? (
+          <WarningBlock violations={state.warnings} />
         ) : null}
       </div>
 

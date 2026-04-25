@@ -129,6 +129,56 @@ function DismissSubmit() {
   )
 }
 
+type RulesViolationLite = {
+  rule?: string
+  reason?: string
+  current_value?: number | string
+  limit_value?: number | string
+}
+
+function parseRulesViolations(raw: unknown): RulesViolationLite[] {
+  if (!Array.isArray(raw)) return []
+  return raw.filter((entry): entry is RulesViolationLite => {
+    return entry !== null && typeof entry === 'object'
+  })
+}
+
+function RulesStatusChip({
+  status,
+  expanded,
+  onToggle,
+}: {
+  status: 'passed' | 'blocked' | 'warning'
+  expanded: boolean
+  onToggle: () => void
+}) {
+  if (status === 'passed') {
+    return (
+      <span className="inline-flex items-center rounded-md bg-positive/10 px-2 py-0.5 text-[10px] tracking-wider text-positive/80">
+        Rules ok
+      </span>
+    )
+  }
+  const label = status === 'blocked' ? 'Rules blocked' : 'Rules warning'
+  const tone =
+    status === 'blocked'
+      ? 'bg-negative/15 text-negative hover:bg-negative/20'
+      : 'bg-warning/15 text-warning hover:bg-warning/20'
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={expanded}
+      className={twMerge(
+        'inline-flex items-center rounded-md px-2 py-0.5 text-[10px] uppercase tracking-wider transition-colors duration-150',
+        tone,
+      )}
+    >
+      {label}
+    </button>
+  )
+}
+
 function formatCoinAmount(value: number, symbol: string): string {
   const abs = Math.abs(value)
   let decimals: number
@@ -169,6 +219,7 @@ function AlertCard({ alert }: { alert: AlertRow }) {
     FormData
   >(dismissAlertAction, initialTradeActionState)
   const now = useNow()
+  const [rulesExpanded, setRulesExpanded] = useState(false)
 
   const frameworkLabel =
     FRAMEWORK_LABELS[alert.framework_id] ?? alert.framework_id
@@ -187,6 +238,10 @@ function AlertCard({ alert }: { alert: AlertRow }) {
     alert.position_size_coin != null && alert.position_size_usd != null
   const leverage =
     alert.leverage_implied != null ? Math.round(alert.leverage_implied) : null
+
+  const rulesStatus = alert.rules_status
+  const rulesViolations = parseRulesViolations(alert.rules_violations)
+  const rulesBlocked = rulesStatus === 'blocked'
 
   return (
     <Panel
@@ -211,6 +266,13 @@ function AlertCard({ alert }: { alert: AlertRow }) {
                 <span className="inline-flex items-center rounded-md bg-white/[0.06] px-2 py-0.5 text-[10px] tracking-wider text-white/40">
                   Expired
                 </span>
+              ) : null}
+              {rulesStatus ? (
+                <RulesStatusChip
+                  status={rulesStatus}
+                  expanded={rulesExpanded}
+                  onToggle={() => setRulesExpanded((prev) => !prev)}
+                />
               ) : null}
             </div>
             <div className="flex items-baseline gap-3">
@@ -286,6 +348,21 @@ function AlertCard({ alert }: { alert: AlertRow }) {
           ) : null}
         </div>
 
+        {rulesExpanded && rulesViolations.length > 0 ? (
+          <div className="rounded-md border border-white/[0.06] bg-surface-2 px-3 py-2.5">
+            <p className="text-[11px] font-medium uppercase tracking-wider text-white/55">
+              {rulesBlocked ? 'Why blocked?' : 'Why warned?'}
+            </p>
+            <ul className="mt-1.5 list-disc space-y-1 pl-5 text-sm text-white/75">
+              {rulesViolations.map((v, idx) => (
+                <li key={`${v.rule ?? 'rule'}-${idx}`}>
+                  {v.reason ?? 'Rule violation'}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
         {dismissState.status === 'error' ? (
           <p className="text-xs text-negative">{dismissState.message}</p>
         ) : null}
@@ -309,6 +386,11 @@ function AlertCard({ alert }: { alert: AlertRow }) {
             <Button
               type="button"
               disabled={expired}
+              title={
+                rulesBlocked
+                  ? "This alert violates your rules. You can still log a trade if you've adjusted your situation."
+                  : undefined
+              }
               onClick={() =>
                 openPanel({
                   mode: 'create',
