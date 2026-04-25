@@ -46,6 +46,7 @@ export default async function AlertsPage({
   })()
   const watchlistOnly = searchParams.watchlist === '1'
   const showDismissed = searchParams.dismissed === '1'
+  const hideExpired = searchParams.expired === 'hide'
 
   let query = supabase
     .from('alerts')
@@ -55,6 +56,10 @@ export default async function AlertsPage({
   if (framework) query = query.eq('framework_id', framework)
   if (watchlistOnly) query = query.eq('is_watchlist', true)
   if (!showDismissed) query = query.eq('dismissed', false)
+  if (hideExpired) {
+    const nowIso = new Date().toISOString()
+    query = query.or(`valid_until.is.null,valid_until.gt.${nowIso}`)
+  }
 
   const { data: alerts } = await query
 

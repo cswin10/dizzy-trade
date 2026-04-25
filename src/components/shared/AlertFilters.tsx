@@ -34,6 +34,7 @@ export function AlertFilters({ frameworks }: AlertFiltersProps) {
 
   const watchlistOnly = params.get('watchlist') === '1'
   const showDismissed = params.get('dismissed') === '1'
+  const hideExpired = params.get('expired') === 'hide'
   const framework = params.get('framework') ?? 'all'
 
   return (
@@ -67,6 +68,11 @@ export function AlertFilters({ frameworks }: AlertFiltersProps) {
         label="Show dismissed"
         checked={showDismissed}
         onChange={(checked) => update('dismissed', checked ? '1' : null)}
+      />
+      <Toggle
+        label="Hide expired"
+        checked={hideExpired}
+        onChange={(checked) => update('expired', checked ? 'hide' : null)}
       />
     </div>
   )

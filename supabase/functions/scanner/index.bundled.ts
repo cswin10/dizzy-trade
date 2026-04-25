@@ -1,5 +1,5 @@
 // AUTO-GENERATED. Do not edit. Run `npm run bundle:scanner` to regenerate.
-// Generated: 2026-04-25T10:13:15.814Z
+// Generated: 2026-04-25T10:39:31.979Z
 //
 // Source files (in dependency order):
 //   supabase/functions/_shared/hyperliquid.ts
@@ -10,6 +10,9 @@
 //   supabase/functions/_shared/frameworks/narrative_breakout.ts
 //   supabase/functions/_shared/frameworks/mean_reversion.ts
 //   supabase/functions/_shared/frameworks/index.ts
+//   supabase/functions/_shared/fx.ts
+//   supabase/functions/_shared/position_sizing.ts
+//   supabase/functions/_shared/timeframes.ts
 //   supabase/functions/scanner/index.ts
 //
 // Paste this entire file into the Supabase dashboard scanner Edge
@@ -137,13 +140,22 @@ async function getAllMarketData(): Promise<Map<string, MarketData>> {
 
 // Fetches up to `lookback` candles for a symbol ending now. Hyperliquid
 // expects startTime/endTime in milliseconds, and returns newest-last.
+type CandleInterval = '15m' | '1h' | '4h' | '1d'
+
+const INTERVAL_MS: Record<CandleInterval, number> = {
+  '15m': 15 * 60 * 1000,
+  '1h': 60 * 60 * 1000,
+  '4h': 4 * 60 * 60 * 1000,
+  '1d': 24 * 60 * 60 * 1000,
+}
+
 async function getCandles(
   symbol: string,
-  interval: '1h' | '4h',
+  interval: CandleInterval,
   lookback = 100,
 ): Promise<Candle[]> {
   const now = Date.now()
-  const intervalMs = interval === '1h' ? 60 * 60 * 1000 : 4 * 60 * 60 * 1000
+  const intervalMs = INTERVAL_MS[interval]
   const startTime = now - intervalMs * lookback
   const response = await postInfo<RawCandle[]>({
     type: 'candleSnapshot',
@@ -182,6 +194,12 @@ type TelegramAlertPayload = {
   funding: number
   oiDeltaPct: number
   appUrl: string
+  positionSizeCoin?: number | null
+  positionSizeUsd?: number | null
+  leverageImplied?: number | null
+  riskAmountGbp?: number | null
+  validUntil?: Date | null
+  timeframe?: '15m' | '1h' | '4h' | '1d' | null
 }
 
 function pct(x: number, digits = 2): string {
@@ -197,20 +215,98 @@ function escapeMarkdown(value: string): string {
   return value.replace(/([_*`\[])/g, '\\$1')
 }
 
+function rrLabel(entry: number, stop: number, target: number): string {
+  const risk = Math.abs(entry - stop)
+  if (risk <= 0) return ''
+  const reward = Math.abs(target - entry)
+  const ratio = reward / risk
+  if (!Number.isFinite(ratio) || ratio <= 0) return ''
+  return `1:${ratio.toFixed(1)} RR`
+}
+
+function formatCoin(value: number, symbol: string): string {
+  const abs = Math.abs(value)
+  let decimals: number
+  if (abs >= 1000) decimals = 0
+  else if (abs >= 1) decimals = 4
+  else if (abs >= 0.01) decimals = 2
+  else decimals = 0
+  return `${value.toLocaleString(undefined, {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  })} ${symbol}`
+}
+
+function formatUsd(value: number): string {
+  return `$${value.toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  })}`
+}
+
+function formatValidUntil(validUntil: Date, timeframe: string | null): string {
+  const hh = String(validUntil.getUTCHours()).padStart(2, '0')
+  const mm = String(validUntil.getUTCMinutes()).padStart(2, '0')
+  const tfLabel = timeframe ? ` (next ${timeframe} close)` : ''
+  return `${hh}:${mm} UTC${tfLabel}`
+}
+
 function formatAlertMessage(alert: TelegramAlertPayload): string {
   const dirLabel = alert.direction.toUpperCase()
   const fundingLabel = pct(alert.funding, 3)
   const oiLabel = `${alert.oiDeltaPct >= 0 ? '+' : ''}${alert.oiDeltaPct.toFixed(0)}% vs 24h avg`
-  return [
+
+  const stopLine = (() => {
+    const distancePct = priceDiffPct(alert.entry, alert.stop)
+    const riskTail =
+      alert.riskAmountGbp != null && alert.riskAmountGbp > 0
+        ? ` / £${alert.riskAmountGbp.toFixed(0)} risk`
+        : ''
+    return `Stop: ${alert.stop.toLocaleString(undefined, { maximumFractionDigits: 6 })} (${distancePct}${riskTail})`
+  })()
+
+  const targetLine = (() => {
+    const rr = rrLabel(alert.entry, alert.stop, alert.target)
+    const tail = rr ? ` (${rr})` : ''
+    return `Target: ${alert.target.toLocaleString(undefined, { maximumFractionDigits: 6 })}${tail}`
+  })()
+
+  const lines: string[] = [
     `🚨 *${escapeMarkdown(alert.framework_name)}* — *${escapeMarkdown(alert.symbol)}*`,
     `Direction: *${dirLabel}*`,
     `Entry: ${alert.entry.toLocaleString(undefined, { maximumFractionDigits: 6 })}`,
-    `Stop: ${alert.stop.toLocaleString(undefined, { maximumFractionDigits: 6 })} (${priceDiffPct(alert.entry, alert.stop)})`,
-    `Target: ${alert.target.toLocaleString(undefined, { maximumFractionDigits: 6 })} (${priceDiffPct(alert.entry, alert.target)})`,
+    stopLine,
+    targetLine,
     `Funding: ${fundingLabel} | OI: ${oiLabel}`,
-    '',
-    `View in Dizzy Trade: ${alert.appUrl}`,
-  ].join('\n')
+  ]
+
+  if (
+    alert.positionSizeCoin != null &&
+    alert.positionSizeUsd != null &&
+    alert.positionSizeCoin > 0
+  ) {
+    lines.push('')
+    lines.push(
+      `Position: ${formatCoin(alert.positionSizeCoin, alert.symbol)} (${formatUsd(alert.positionSizeUsd)})`,
+    )
+    if (alert.leverageImplied != null && alert.leverageImplied > 0) {
+      const lev = Math.round(alert.leverageImplied)
+      const warn = lev > 100 ? ' ⚠️ HIGH LEVERAGE' : ''
+      lines.push(`Leverage: ${lev}x${warn}`)
+    }
+  }
+
+  if (alert.validUntil) {
+    lines.push('')
+    lines.push(
+      `Valid until: ${formatValidUntil(alert.validUntil, alert.timeframe ?? null)}`,
+    )
+  }
+
+  lines.push('')
+  lines.push(`View in Dizzy Trade: ${alert.appUrl}`)
+
+  return lines.join('\n')
 }
 
 async function sendTelegramAlert(
@@ -1094,6 +1190,191 @@ const FRAMEWORKS: Map<string, Framework> = new Map([
 ])
 
 // ---------------------------------------------------------------------
+// supabase/functions/_shared/fx.ts
+// ---------------------------------------------------------------------
+
+// GBP/USD rate fetcher with a 1-hour in-memory cache.
+//
+// Uses Frankfurter (https://api.frankfurter.app), which is free, has
+// no auth, and serves ECB reference rates. The Edge Function instance
+// is reused across cron ticks so the module-level cache survives long
+// enough to keep API hits trivial.
+//
+// If the API fails, we fall back to a hardcoded 1.27 (close enough
+// for v1 sizing) and log a warning so the operator can see something
+// went wrong without breaking the scan.
+
+const FALLBACK_RATE = 1.27
+const CACHE_TTL_MS = 60 * 60 * 1000
+
+type CacheEntry = { rate: number; expiresAt: number }
+let cache: CacheEntry | null = null
+
+type FrankfurterResponse = {
+  amount?: number
+  base?: string
+  date?: string
+  rates?: Record<string, number>
+}
+
+/**
+ * Returns the current GBP→USD rate. Cached for one hour per Edge
+ * Function instance.
+ *
+ * @example
+ *   const rate = await getGbpUsdRate() // 1.27
+ *   const usd = pounds * rate
+ */
+async function getGbpUsdRate(): Promise<number> {
+  const now = Date.now()
+  if (cache && cache.expiresAt > now) return cache.rate
+
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 5_000)
+    let response: Response
+    try {
+      response = await fetch(
+        'https://api.frankfurter.app/latest?from=GBP&to=USD',
+        { signal: controller.signal },
+      )
+    } finally {
+      clearTimeout(timer)
+    }
+    if (!response.ok) {
+      throw new Error(`frankfurter ${response.status}`)
+    }
+    const body = (await response.json()) as FrankfurterResponse
+    const rate = body.rates?.USD
+    if (typeof rate !== 'number' || !Number.isFinite(rate) || rate <= 0) {
+      throw new Error('frankfurter response missing USD rate')
+    }
+    cache = { rate, expiresAt: now + CACHE_TTL_MS }
+    return rate
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(
+      `[fx] GBP/USD fetch failed (${message}), using fallback ${FALLBACK_RATE}`,
+    )
+    return FALLBACK_RATE
+  }
+}
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/position_sizing.ts
+// ---------------------------------------------------------------------
+
+// Risk-based position sizing for strategy alerts.
+//
+// Given the strategy's GBP risk per trade, the entry, and the stop,
+// we work back to a position size in the base asset and the implied
+// notional and leverage. Coin amounts are rounded by price tier so
+// the user gets a copy-pasteable size rather than a 12-decimal float.
+
+type SizingInput = {
+  entry: number
+  stop: number
+  riskGbp: number
+  gbpUsdRate: number
+}
+
+type SizingResult = {
+  positionSizeCoin: number
+  positionSizeUsd: number
+  leverageImplied: number
+  riskUsd: number
+}
+
+// Decimals for the base-asset position. BTC/ETH end up with 4dp,
+// mid-cap coins with 2dp, sub-dollar memecoins with whole units.
+function decimalsForPrice(price: number): number {
+  const abs = Math.abs(price)
+  if (abs >= 1000) return 4
+  if (abs >= 10) return 2
+  if (abs >= 1) return 1
+  return 0
+}
+
+function roundTo(value: number, decimals: number): number {
+  const factor = 10 ** decimals
+  return Math.round(value * factor) / factor
+}
+
+/**
+ * Compute position size, notional, and implied leverage from a
+ * GBP risk amount and an entry/stop pair.
+ *
+ * @example
+ *   computeSizing({ entry: 67245, stop: 66920, riskGbp: 30, gbpUsdRate: 1.27 })
+ *   // -> { positionSizeCoin: 0.1172, positionSizeUsd: 7881.12,
+ *   //      leverageImplied: 207.0, riskUsd: 38.1 }
+ */
+function computeSizing(input: SizingInput): SizingResult {
+  const riskUsd = input.riskGbp * input.gbpUsdRate
+  const stopDistanceUsd = Math.abs(input.entry - input.stop)
+  if (stopDistanceUsd <= 0 || riskUsd <= 0 || input.entry <= 0) {
+    return {
+      positionSizeCoin: 0,
+      positionSizeUsd: 0,
+      leverageImplied: 0,
+      riskUsd,
+    }
+  }
+  const rawCoin = riskUsd / stopDistanceUsd
+  const positionSizeCoin = roundTo(rawCoin, decimalsForPrice(input.entry))
+  const positionSizeUsd = positionSizeCoin * input.entry
+  const leverageImplied = riskUsd > 0 ? positionSizeUsd / riskUsd : 0
+  return {
+    positionSizeCoin,
+    positionSizeUsd,
+    leverageImplied,
+    riskUsd,
+  }
+}
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/timeframes.ts
+// ---------------------------------------------------------------------
+
+// Timeframe helpers for strategy candle alignment.
+//
+// All Hyperliquid candles align to UTC boundaries on intervals that
+// divide the day evenly, so a Unix timestamp rounded up to the next
+// multiple of the interval gives the next candle close.
+//
+// If `now` lands exactly on a boundary, the candle that opened at
+// that boundary closes one full interval later.
+
+type Timeframe = '15m' | '1h' | '4h' | '1d'
+
+const INTERVAL_MS__timeframes: Record<Timeframe, number> = {
+  '15m': 15 * 60 * 1000,
+  '1h': 60 * 60 * 1000,
+  '4h': 4 * 60 * 60 * 1000,
+  '1d': 24 * 60 * 60 * 1000,
+}
+
+/**
+ * Returns the close time of the candle currently open at `now`.
+ *
+ * @example
+ *   nextCandleClose('1h', new Date('2026-04-25T13:42:11Z'))
+ *   // -> Date('2026-04-25T14:00:00Z')
+ *   nextCandleClose('1h', new Date('2026-04-25T13:00:00Z'))
+ *   // -> Date('2026-04-25T14:00:00Z')
+ */
+function nextCandleClose(
+  timeframe: Timeframe,
+  now: Date = new Date(),
+): Date {
+  const ms = now.getTime()
+  const interval = INTERVAL_MS__timeframes[timeframe]
+  const ceiling = Math.ceil(ms / interval) * interval
+  const next = ceiling > ms ? ceiling : ceiling + interval
+  return new Date(next)
+}
+
+// ---------------------------------------------------------------------
 // supabase/functions/scanner/index.ts
 // ---------------------------------------------------------------------
 
@@ -1128,7 +1409,7 @@ const CANDLE_LOOKBACK = 60
 const APP_URL =
   Deno.env.get('DIZZY_TRADE_APP_URL') ?? 'https://dizzy-trade.vercel.app'
 
-type Timeframe = '15m' | '1h' | '4h' | '1d'
+type Timeframe__index = '15m' | '1h' | '4h' | '1d'
 
 type UniverseRow = {
   symbol: string
@@ -1140,8 +1421,9 @@ type StrategyRow = {
   id: string
   name: string
   framework_id: string
-  timeframe: Timeframe
+  timeframe: Timeframe__index
   pair_symbols: string[]
+  risk_amount_gbp: number
   is_active: boolean
 }
 
@@ -1197,7 +1479,9 @@ async function loadActiveStrategies(): Promise<StrategyRow[]> {
   const client = supabase()
   const { data, error } = await client
     .from('strategies')
-    .select('id, name, framework_id, timeframe, pair_symbols, is_active')
+    .select(
+      'id, name, framework_id, timeframe, pair_symbols, risk_amount_gbp, is_active',
+    )
     .eq('is_active', true)
   if (error) {
     throw new Error(`strategies load failed: ${error.message}`)
@@ -1320,6 +1604,12 @@ type AlertInsert = {
   suggested_target: number | null
   is_watchlist: boolean
   notified_telegram: boolean
+  position_size_coin: number | null
+  position_size_usd: number | null
+  leverage_implied: number | null
+  valid_until: string | null
+  risk_amount_gbp: number | null
+  gbp_usd_rate: number | null
 }
 
 async function insertAlert(alert: AlertInsert): Promise<string | null> {
@@ -1358,6 +1648,7 @@ async function evaluateStrategy(args: {
   history: Map<string, { funding: number[]; oi: number[] }>
   narrativeHeat: Map<string, NarrativeHeat>
   btcReturn24h: number
+  gbpUsdRate: number
   scanStartedAt: number
   budgetState: { softLogged: boolean; truncated: boolean }
 }): Promise<StrategySummary> {
@@ -1369,6 +1660,7 @@ async function evaluateStrategy(args: {
     history,
     narrativeHeat,
     btcReturn24h,
+    gbpUsdRate,
     scanStartedAt,
     budgetState,
   } = args
@@ -1444,6 +1736,25 @@ async function evaluateStrategy(args: {
 
     summary.triggered++
     const isWatchlist = universeRow?.is_watchlist ?? true
+
+    // Position sizing is only meaningful when we have entry and stop;
+    // narrative-only alerts without a stop fall back to nulls so the
+    // schema stays uniform.
+    let sizing: ReturnType<typeof computeSizing> | null = null
+    if (
+      result.suggestedEntry != null &&
+      result.suggestedStop != null &&
+      strategy.risk_amount_gbp > 0
+    ) {
+      sizing = computeSizing({
+        entry: result.suggestedEntry,
+        stop: result.suggestedStop,
+        riskGbp: strategy.risk_amount_gbp,
+        gbpUsdRate,
+      })
+    }
+    const validUntil = nextCandleClose(strategy.timeframe)
+
     const alertId = await insertAlert({
       strategy_id: strategy.id,
       framework_id: framework.id,
@@ -1456,6 +1767,12 @@ async function evaluateStrategy(args: {
       suggested_target: result.suggestedTarget ?? null,
       is_watchlist: isWatchlist,
       notified_telegram: false,
+      position_size_coin: sizing?.positionSizeCoin ?? null,
+      position_size_usd: sizing?.positionSizeUsd ?? null,
+      leverage_implied: sizing?.leverageImplied ?? null,
+      valid_until: validUntil.toISOString(),
+      risk_amount_gbp: strategy.risk_amount_gbp,
+      gbp_usd_rate: gbpUsdRate,
     })
     if (!alertId) return
 
@@ -1479,6 +1796,12 @@ async function evaluateStrategy(args: {
         funding: meta.funding,
         oiDeltaPct,
         appUrl: `${APP_URL}/alerts`,
+        positionSizeCoin: sizing?.positionSizeCoin ?? null,
+        positionSizeUsd: sizing?.positionSizeUsd ?? null,
+        leverageImplied: sizing?.leverageImplied ?? null,
+        riskAmountGbp: strategy.risk_amount_gbp,
+        validUntil,
+        timeframe: strategy.timeframe,
       })
       if (ok) await markNotified(alertId)
     }
@@ -1538,12 +1861,14 @@ async function runScan(): Promise<{
     for (const sym of s.pair_symbols) strategyPairs.add(sym)
   }
 
-  const [thresholds, narrativeHeat, btcReturn24h, history] = await Promise.all([
-    loadThresholds(),
-    loadNarrativeHeat(),
-    loadBtcReturn24h(),
-    loadHistory([...strategyPairs]),
-  ])
+  const [thresholds, narrativeHeat, btcReturn24h, history, gbpUsdRate] =
+    await Promise.all([
+      loadThresholds(),
+      loadNarrativeHeat(),
+      loadBtcReturn24h(),
+      loadHistory([...strategyPairs]),
+      getGbpUsdRate(),
+    ])
 
   const budgetState = { softLogged: false, truncated: false }
   const summaries: StrategySummary[] = []
@@ -1559,6 +1884,7 @@ async function runScan(): Promise<{
       history,
       narrativeHeat,
       btcReturn24h,
+      gbpUsdRate,
       scanStartedAt: started,
       budgetState,
     })

@@ -33,6 +33,9 @@ import type {
   MarketSnapshot,
   NarrativeHeat,
 } from '../_shared/frameworks/types.ts'
+import { getGbpUsdRate } from '../_shared/fx.ts'
+import { computeSizing } from '../_shared/position_sizing.ts'
+import { nextCandleClose } from '../_shared/timeframes.ts'
 
 const CONCURRENCY = 5
 const HISTORY_WINDOW_MINUTES = 60 * 24 // 24 hours
@@ -56,6 +59,7 @@ type StrategyRow = {
   framework_id: string
   timeframe: Timeframe
   pair_symbols: string[]
+  risk_amount_gbp: number
   is_active: boolean
 }
 
@@ -111,7 +115,9 @@ async function loadActiveStrategies(): Promise<StrategyRow[]> {
   const client = supabase()
   const { data, error } = await client
     .from('strategies')
-    .select('id, name, framework_id, timeframe, pair_symbols, is_active')
+    .select(
+      'id, name, framework_id, timeframe, pair_symbols, risk_amount_gbp, is_active',
+    )
     .eq('is_active', true)
   if (error) {
     throw new Error(`strategies load failed: ${error.message}`)
@@ -234,6 +240,12 @@ type AlertInsert = {
   suggested_target: number | null
   is_watchlist: boolean
   notified_telegram: boolean
+  position_size_coin: number | null
+  position_size_usd: number | null
+  leverage_implied: number | null
+  valid_until: string | null
+  risk_amount_gbp: number | null
+  gbp_usd_rate: number | null
 }
 
 async function insertAlert(alert: AlertInsert): Promise<string | null> {
@@ -272,6 +284,7 @@ async function evaluateStrategy(args: {
   history: Map<string, { funding: number[]; oi: number[] }>
   narrativeHeat: Map<string, NarrativeHeat>
   btcReturn24h: number
+  gbpUsdRate: number
   scanStartedAt: number
   budgetState: { softLogged: boolean; truncated: boolean }
 }): Promise<StrategySummary> {
@@ -283,6 +296,7 @@ async function evaluateStrategy(args: {
     history,
     narrativeHeat,
     btcReturn24h,
+    gbpUsdRate,
     scanStartedAt,
     budgetState,
   } = args
@@ -358,6 +372,25 @@ async function evaluateStrategy(args: {
 
     summary.triggered++
     const isWatchlist = universeRow?.is_watchlist ?? true
+
+    // Position sizing is only meaningful when we have entry and stop;
+    // narrative-only alerts without a stop fall back to nulls so the
+    // schema stays uniform.
+    let sizing: ReturnType<typeof computeSizing> | null = null
+    if (
+      result.suggestedEntry != null &&
+      result.suggestedStop != null &&
+      strategy.risk_amount_gbp > 0
+    ) {
+      sizing = computeSizing({
+        entry: result.suggestedEntry,
+        stop: result.suggestedStop,
+        riskGbp: strategy.risk_amount_gbp,
+        gbpUsdRate,
+      })
+    }
+    const validUntil = nextCandleClose(strategy.timeframe)
+
     const alertId = await insertAlert({
       strategy_id: strategy.id,
       framework_id: framework.id,
@@ -370,6 +403,12 @@ async function evaluateStrategy(args: {
       suggested_target: result.suggestedTarget ?? null,
       is_watchlist: isWatchlist,
       notified_telegram: false,
+      position_size_coin: sizing?.positionSizeCoin ?? null,
+      position_size_usd: sizing?.positionSizeUsd ?? null,
+      leverage_implied: sizing?.leverageImplied ?? null,
+      valid_until: validUntil.toISOString(),
+      risk_amount_gbp: strategy.risk_amount_gbp,
+      gbp_usd_rate: gbpUsdRate,
     })
     if (!alertId) return
 
@@ -393,6 +432,12 @@ async function evaluateStrategy(args: {
         funding: meta.funding,
         oiDeltaPct,
         appUrl: `${APP_URL}/alerts`,
+        positionSizeCoin: sizing?.positionSizeCoin ?? null,
+        positionSizeUsd: sizing?.positionSizeUsd ?? null,
+        leverageImplied: sizing?.leverageImplied ?? null,
+        riskAmountGbp: strategy.risk_amount_gbp,
+        validUntil,
+        timeframe: strategy.timeframe,
       })
       if (ok) await markNotified(alertId)
     }
@@ -452,12 +497,14 @@ async function runScan(): Promise<{
     for (const sym of s.pair_symbols) strategyPairs.add(sym)
   }
 
-  const [thresholds, narrativeHeat, btcReturn24h, history] = await Promise.all([
-    loadThresholds(),
-    loadNarrativeHeat(),
-    loadBtcReturn24h(),
-    loadHistory([...strategyPairs]),
-  ])
+  const [thresholds, narrativeHeat, btcReturn24h, history, gbpUsdRate] =
+    await Promise.all([
+      loadThresholds(),
+      loadNarrativeHeat(),
+      loadBtcReturn24h(),
+      loadHistory([...strategyPairs]),
+      getGbpUsdRate(),
+    ])
 
   const budgetState = { softLogged: false, truncated: false }
   const summaries: StrategySummary[] = []
@@ -473,6 +520,7 @@ async function runScan(): Promise<{
       history,
       narrativeHeat,
       btcReturn24h,
+      gbpUsdRate,
       scanStartedAt: started,
       budgetState,
     })
