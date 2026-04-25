@@ -13,6 +13,7 @@ import {
   DndContext,
   KeyboardSensor,
   PointerSensor,
+  TouchSensor,
   closestCenter,
   useSensor,
   useSensors,
@@ -108,6 +109,9 @@ export function SortableChartGrid({
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 200, tolerance: 8 },
+    }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
     }),
@@ -219,10 +223,11 @@ function SortableSlot({
         {...attributes}
         {...listeners}
         className={twMerge(
-          'absolute right-2 top-2 z-10 inline-flex h-6 w-6 cursor-grab items-center justify-center rounded text-white/30 transition-colors duration-150',
-          'opacity-0 hover:bg-white/5 hover:text-accent focus-visible:opacity-100 group-hover:opacity-100',
+          'absolute right-1.5 top-1.5 z-10 inline-flex h-9 w-9 cursor-grab items-center justify-center rounded-md text-white/45 transition-colors duration-150 sm:right-2 sm:top-2 sm:h-6 sm:w-6 sm:text-white/30',
+          'hover:bg-white/5 hover:text-accent focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100',
           isDragging && 'cursor-grabbing opacity-100',
         )}
+        style={{ touchAction: 'none' }}
       >
         <GripIcon />
       </button>
@@ -233,7 +238,11 @@ function SortableSlot({
 
 function GripIcon() {
   return (
-    <svg viewBox="0 0 12 12" aria-hidden="true" className="h-3 w-3">
+    <svg
+      viewBox="0 0 12 12"
+      aria-hidden="true"
+      className="h-4 w-4 sm:h-3 sm:w-3"
+    >
       <circle cx="3" cy="3" r="1" fill="currentColor" />
       <circle cx="9" cy="3" r="1" fill="currentColor" />
       <circle cx="3" cy="6" r="1" fill="currentColor" />

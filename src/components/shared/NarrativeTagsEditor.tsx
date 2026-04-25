@@ -139,7 +139,7 @@ function NarrativeRow({ row, onChange }: NarrativeRowProps) {
   }
 
   return (
-    <div className="grid grid-cols-[100px_1fr_1fr] items-center gap-4 py-3">
+    <div className="flex flex-col gap-2 py-3 md:grid md:grid-cols-[100px_1fr_1fr] md:items-center md:gap-4">
       <div className="text-sm font-semibold uppercase tracking-wide text-white">
         {row.symbol}
       </div>
@@ -154,7 +154,7 @@ function NarrativeRow({ row, onChange }: NarrativeRowProps) {
               disabled={pending}
               aria-pressed={selected}
               className={twMerge(
-                'rounded-md border px-3 py-1 text-xs font-medium transition-colors duration-150',
+                'rounded-md border px-3 py-1.5 text-xs font-medium transition-colors duration-150',
                 selected
                   ? heat.active
                   : 'border-white/10 bg-transparent text-white/50 hover:border-white/20 hover:text-white',
@@ -176,7 +176,7 @@ function NarrativeRow({ row, onChange }: NarrativeRowProps) {
             save(row.heat_level, next)
           }}
           placeholder="Note (optional)"
-          className="rounded border border-white/10 bg-surface-2 px-2.5 py-1 text-xs text-white/80 placeholder-white/30 outline-none focus:border-accent/40"
+          className="w-full rounded border border-white/10 bg-surface-2 px-2.5 py-1.5 text-xs text-white/80 placeholder-white/30 outline-none focus:border-accent/40"
         />
         {error ? <p className="text-[11px] text-negative">{error}</p> : null}
       </div>

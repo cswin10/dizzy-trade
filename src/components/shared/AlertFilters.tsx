@@ -40,11 +40,11 @@ export function AlertFilters({ frameworks }: AlertFiltersProps) {
   return (
     <div
       className={twMerge(
-        'flex flex-wrap items-end gap-3',
+        'flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end',
         pending && 'opacity-70',
       )}
     >
-      <div className="w-52">
+      <div className="w-full sm:w-52">
         <Select
           label="Framework"
           name="framework"
@@ -59,21 +59,23 @@ export function AlertFilters({ frameworks }: AlertFiltersProps) {
           ))}
         </Select>
       </div>
-      <Toggle
-        label="Watchlist only"
-        checked={watchlistOnly}
-        onChange={(checked) => update('watchlist', checked ? '1' : null)}
-      />
-      <Toggle
-        label="Show dismissed"
-        checked={showDismissed}
-        onChange={(checked) => update('dismissed', checked ? '1' : null)}
-      />
-      <Toggle
-        label="Hide expired"
-        checked={hideExpired}
-        onChange={(checked) => update('expired', checked ? 'hide' : null)}
-      />
+      <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:gap-3">
+        <Toggle
+          label="Watchlist only"
+          checked={watchlistOnly}
+          onChange={(checked) => update('watchlist', checked ? '1' : null)}
+        />
+        <Toggle
+          label="Show dismissed"
+          checked={showDismissed}
+          onChange={(checked) => update('dismissed', checked ? '1' : null)}
+        />
+        <Toggle
+          label="Hide expired"
+          checked={hideExpired}
+          onChange={(checked) => update('expired', checked ? 'hide' : null)}
+        />
+      </div>
     </div>
   )
 }

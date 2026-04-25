@@ -129,7 +129,7 @@ export function AlertToast() {
   if (toasts.length === 0) return null
 
   return (
-    <div className="pointer-events-none fixed bottom-6 right-6 z-[55] flex w-[320px] flex-col gap-2">
+    <div className="pointer-events-none fixed inset-x-3 bottom-3 z-[55] flex flex-col gap-2 sm:bottom-6 sm:left-auto sm:right-6 sm:w-[320px]">
       {toasts.map((toast) =>
         toast.kind === 'alert' ? (
           <div

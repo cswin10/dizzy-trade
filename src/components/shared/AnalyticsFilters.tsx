@@ -92,7 +92,7 @@ export function AnalyticsFiltersBar({
   return (
     <div
       className={twMerge(
-        'flex flex-wrap items-end gap-x-5 gap-y-3 rounded-md border border-white/[0.06] bg-surface px-4 py-3',
+        'flex flex-col gap-3 rounded-md border border-white/[0.06] bg-surface px-3 py-3 sm:flex-row sm:flex-wrap sm:items-end sm:gap-x-5 sm:gap-y-3 sm:px-4',
         pending && 'opacity-70',
       )}
     >
@@ -254,7 +254,7 @@ function FilterColumn({
 }
 
 function ButtonGroup({ children }: { children: React.ReactNode }) {
-  return <div className="flex items-center gap-1.5">{children}</div>
+  return <div className="flex flex-wrap items-center gap-1.5">{children}</div>
 }
 
 function RangeButton({
@@ -345,7 +345,7 @@ function PairMultiselect({
       {open ? (
         <div
           role="listbox"
-          className="absolute left-0 top-full z-20 mt-1 max-h-72 w-48 overflow-y-auto rounded-md border border-white/[0.08] bg-base p-1 shadow-xl"
+          className="absolute left-0 top-full z-20 mt-1 max-h-72 w-44 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-md border border-white/[0.08] bg-base p-1 shadow-xl sm:w-48"
         >
           {value.length > 0 ? (
             <button

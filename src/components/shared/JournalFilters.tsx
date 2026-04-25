@@ -60,9 +60,9 @@ export function JournalFilters({
 
   return (
     <div
-      className={`flex flex-wrap items-end gap-3 ${pending ? 'opacity-70' : ''}`}
+      className={`grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-end sm:gap-3 ${pending ? 'opacity-70' : ''}`}
     >
-      <div className="w-44">
+      <div className="w-full sm:w-44">
         <Select
           label="Narrative"
           name="narrative"
@@ -77,7 +77,7 @@ export function JournalFilters({
           ))}
         </Select>
       </div>
-      <div className="w-44">
+      <div className="w-full sm:w-44">
         <Select
           label="Outcome"
           name="outcome"
@@ -91,7 +91,7 @@ export function JournalFilters({
           ))}
         </Select>
       </div>
-      <div className="w-44">
+      <div className="w-full sm:w-44">
         <Select
           label="Time"
           name="time"
@@ -106,7 +106,7 @@ export function JournalFilters({
         </Select>
       </div>
       {showLessonFilter ? (
-        <div className="w-52">
+        <div className="col-span-2 w-full sm:col-span-1 sm:w-52">
           <Select
             label="Lesson"
             name="lesson"

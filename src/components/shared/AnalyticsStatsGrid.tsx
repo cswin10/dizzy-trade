@@ -51,7 +51,7 @@ function StatCard({
   progressPct?: number
 }) {
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-surface bg-panel-lit p-4">
+    <div className="flex flex-col gap-2 rounded-lg border border-white/[0.06] bg-surface bg-panel-lit p-3 sm:gap-3 sm:p-4">
       <StatLabel>{label}</StatLabel>
       <AnimatedStatValue
         value={value}
@@ -104,7 +104,11 @@ export function AnalyticsStatsGrid({
         : 'neutral'
 
   return (
-    <div className={twMerge('grid grid-cols-2 gap-3 md:grid-cols-5')}>
+    <div
+      className={twMerge(
+        'grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3 lg:grid-cols-5',
+      )}
+    >
       <StatCard
         label="Win rate"
         value={overview.win_rate}
