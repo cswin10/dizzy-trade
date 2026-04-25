@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { useFormState, useFormStatus } from 'react-dom'
 
 import { twMerge } from 'tailwind-merge'
@@ -13,6 +14,18 @@ import { StatusDot } from '@/components/ui/StatusDot'
 import type { Database } from '@/types/database'
 
 import { useLogTradePanel } from './LogTradePanelContext'
+
+// Drives the "expires in N minutes" countdown. We tick every 30s so the
+// label updates without keeping a high-frequency timer running for
+// alerts that are minutes away from expiring.
+function useNow(intervalMs = 30_000): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), intervalMs)
+    return () => clearInterval(id)
+  }, [intervalMs])
+  return now
+}
 
 export type AlertRow = Database['public']['Tables']['alerts']['Row']
 
@@ -116,12 +129,46 @@ function DismissSubmit() {
   )
 }
 
+function formatCoinAmount(value: number, symbol: string): string {
+  const abs = Math.abs(value)
+  let decimals: number
+  if (abs >= 1000) decimals = 0
+  else if (abs >= 1) decimals = 4
+  else if (abs >= 0.01) decimals = 2
+  else decimals = 0
+  return `${value.toLocaleString('en-GB', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  })} ${symbol}`
+}
+
+function formatUsd(value: number): string {
+  return `$${value.toLocaleString('en-GB', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  })}`
+}
+
+function expiryLabel(validUntilMs: number, nowMs: number): string {
+  const diffMs = validUntilMs - nowMs
+  if (diffMs <= 0) return 'Expired'
+  const minutes = Math.round(diffMs / 60_000)
+  if (minutes < 1) return 'Expires in under a minute'
+  if (minutes < 60)
+    return `Expires in ${minutes} minute${minutes === 1 ? '' : 's'}`
+  const hours = Math.round(diffMs / 3_600_000)
+  if (hours < 24) return `Expires in ${hours} hour${hours === 1 ? '' : 's'}`
+  const days = Math.round(diffMs / 86_400_000)
+  return `Expires in ${days} day${days === 1 ? '' : 's'}`
+}
+
 function AlertCard({ alert }: { alert: AlertRow }) {
   const { open: openPanel } = useLogTradePanel()
   const [dismissState, dismissAction] = useFormState<
     TradeActionState,
     FormData
   >(dismissAlertAction, initialTradeActionState)
+  const now = useNow()
 
   const frameworkLabel =
     FRAMEWORK_LABELS[alert.framework_id] ?? alert.framework_id
@@ -134,12 +181,19 @@ function AlertCard({ alert }: { alert: AlertRow }) {
   const targetPct = diffPct(alert.suggested_entry, alert.suggested_target)
 
   const alreadyTraded = Boolean(alert.trade_id)
+  const validUntilMs = alert.valid_until ? Date.parse(alert.valid_until) : null
+  const expired = validUntilMs !== null && validUntilMs <= now
+  const sizingAvailable =
+    alert.position_size_coin != null && alert.position_size_usd != null
+  const leverage =
+    alert.leverage_implied != null ? Math.round(alert.leverage_implied) : null
 
   return (
     <Panel
       className={twMerge(
         alert.dismissed && 'opacity-60',
-        alert.is_watchlist && 'border-accent/25',
+        expired && 'opacity-50',
+        alert.is_watchlist && !expired && 'border-accent/25',
       )}
     >
       <div className="flex flex-col gap-4">
@@ -151,6 +205,11 @@ function AlertCard({ alert }: { alert: AlertRow }) {
                 <span className="inline-flex items-center gap-1.5 rounded-md bg-accent/15 px-2 py-0.5 text-[10px] tracking-wider text-accent">
                   <StatusDot tone="accent" />
                   <span>Watchlist</span>
+                </span>
+              ) : null}
+              {expired ? (
+                <span className="inline-flex items-center rounded-md bg-white/[0.06] px-2 py-0.5 text-[10px] tracking-wider text-white/40">
+                  Expired
                 </span>
               ) : null}
             </div>
@@ -180,6 +239,30 @@ function AlertCard({ alert }: { alert: AlertRow }) {
           />
         </div>
 
+        {sizingAvailable || alert.risk_amount_gbp != null || validUntilMs ? (
+          <div className="grid grid-cols-1 gap-3 border-t border-white/[0.04] pt-3 sm:grid-cols-3">
+            {sizingAvailable ? (
+              <KeyValue
+                label="Position"
+                value={`${formatCoinAmount(alert.position_size_coin!, alert.symbol)} (${formatUsd(alert.position_size_usd!)})${leverage != null ? ` · ${leverage}x` : ''}`}
+              />
+            ) : null}
+            {alert.risk_amount_gbp != null ? (
+              <KeyValue
+                label="Risk"
+                value={`£${Number(alert.risk_amount_gbp).toFixed(0)}`}
+              />
+            ) : null}
+            {validUntilMs ? (
+              <KeyValue
+                label="Validity"
+                value={expiryLabel(validUntilMs, now)}
+                tone={expired ? 'negative' : undefined}
+              />
+            ) : null}
+          </div>
+        ) : null}
+
         <div className="flex flex-wrap gap-2">
           {Number.isFinite(fundingVal) ? (
             <Chip
@@ -197,6 +280,9 @@ function AlertCard({ alert }: { alert: AlertRow }) {
           ) : null}
           {Number.isFinite(wickRatio) && wickRatio > 0 ? (
             <Chip label="Wick" value={`${wickRatio.toFixed(1)}x body`} />
+          ) : null}
+          {leverage != null && leverage > 100 ? (
+            <Chip label="Leverage" value={`${leverage}x · high`} />
           ) : null}
         </div>
 
@@ -222,6 +308,7 @@ function AlertCard({ alert }: { alert: AlertRow }) {
           {!alreadyTraded ? (
             <Button
               type="button"
+              disabled={expired}
               onClick={() =>
                 openPanel({
                   mode: 'create',
@@ -239,7 +326,7 @@ function AlertCard({ alert }: { alert: AlertRow }) {
               }
               className="w-auto px-4"
             >
-              Open trade from alert
+              {expired ? 'Expired' : 'Open trade from alert'}
             </Button>
           ) : null}
         </div>

@@ -113,13 +113,22 @@ export async function getAllMarketData(): Promise<Map<string, MarketData>> {
 
 // Fetches up to `lookback` candles for a symbol ending now. Hyperliquid
 // expects startTime/endTime in milliseconds, and returns newest-last.
+export type CandleInterval = '15m' | '1h' | '4h' | '1d'
+
+const INTERVAL_MS: Record<CandleInterval, number> = {
+  '15m': 15 * 60 * 1000,
+  '1h': 60 * 60 * 1000,
+  '4h': 4 * 60 * 60 * 1000,
+  '1d': 24 * 60 * 60 * 1000,
+}
+
 export async function getCandles(
   symbol: string,
-  interval: '1h' | '4h',
+  interval: CandleInterval,
   lookback = 100,
 ): Promise<Candle[]> {
   const now = Date.now()
-  const intervalMs = interval === '1h' ? 60 * 60 * 1000 : 4 * 60 * 60 * 1000
+  const intervalMs = INTERVAL_MS[interval]
   const startTime = now - intervalMs * lookback
   const response = await postInfo<RawCandle[]>({
     type: 'candleSnapshot',

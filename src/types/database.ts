@@ -371,6 +371,12 @@ export type Database = {
           dismissed_at: string | null
           notified_telegram: boolean
           strategy_id: string | null
+          position_size_coin: number | null
+          position_size_usd: number | null
+          leverage_implied: number | null
+          valid_until: string | null
+          risk_amount_gbp: number | null
+          gbp_usd_rate: number | null
         }
         Insert: {
           id?: string
@@ -390,6 +396,12 @@ export type Database = {
           dismissed_at?: string | null
           notified_telegram?: boolean
           strategy_id?: string | null
+          position_size_coin?: number | null
+          position_size_usd?: number | null
+          leverage_implied?: number | null
+          valid_until?: string | null
+          risk_amount_gbp?: number | null
+          gbp_usd_rate?: number | null
         }
         Update: {
           id?: string
@@ -409,6 +421,12 @@ export type Database = {
           dismissed_at?: string | null
           notified_telegram?: boolean
           strategy_id?: string | null
+          position_size_coin?: number | null
+          position_size_usd?: number | null
+          leverage_implied?: number | null
+          valid_until?: string | null
+          risk_amount_gbp?: number | null
+          gbp_usd_rate?: number | null
         }
         Relationships: []
       }
