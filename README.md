@@ -46,14 +46,15 @@ Variables prefixed with `NEXT_PUBLIC_` are inlined into the client bundle at bui
 
 ## Scripts
 
-| Command                | Description                           |
-| ---------------------- | ------------------------------------- |
-| `npm run dev`          | Start the Next.js development server. |
-| `npm run build`        | Create a production build.            |
-| `npm run start`        | Start the production server.          |
-| `npm run lint`         | Run ESLint.                           |
-| `npm run format`       | Format the codebase with Prettier.    |
-| `npm run format:check` | Check the codebase is Prettier-clean. |
+| Command                  | Description                                                                      |
+| ------------------------ | -------------------------------------------------------------------------------- |
+| `npm run dev`            | Start the Next.js development server.                                            |
+| `npm run build`          | Create a production build.                                                       |
+| `npm run start`          | Start the production server.                                                     |
+| `npm run lint`           | Run ESLint.                                                                      |
+| `npm run format`         | Format the codebase with Prettier.                                               |
+| `npm run format:check`   | Check the codebase is Prettier-clean.                                            |
+| `npm run bundle:scanner` | Flatten the scanner Edge Function into a single file for the Supabase dashboard. |
 
 ## Project structure
 
@@ -72,6 +73,20 @@ src/
 supabase/
   migrations/       SQL migrations managed by the Supabase CLI.
 ```
+
+## Deploying the scanner
+
+The scanner Edge Function is deployed through the Supabase dashboard, not the CLI. Source for the scanner is split across `supabase/functions/scanner/index.ts` and several files under `supabase/functions/_shared/` for readability. To deploy:
+
+```bash
+npm run bundle:scanner
+```
+
+This regenerates `supabase/functions/scanner/index.bundled.ts`, a single self-contained TypeScript file with every helper inlined. Open the scanner Edge Function in the Supabase dashboard, replace its contents with the entire bundled file, and click Deploy.
+
+The bundled file is checked into the repository so the most recently deployed scanner is always visible in source control. Do not edit it by hand; rerun the bundler instead.
+
+When you change the scanner, any framework, or any helper under `supabase/functions/_shared/`, regenerate the bundle before opening a pull request so the artefact stays in sync with source.
 
 ## Tech stack
 

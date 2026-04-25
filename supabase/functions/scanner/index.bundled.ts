@@ -1,25 +1,32 @@
-// Bundled single-file Scanner for the Supabase dashboard editor.
+// AUTO-GENERATED. Do not edit. Run `npm run bundle:scanner` to regenerate.
+// Generated: 2026-04-25T09:48:42.803Z
 //
-// This file is a flattened copy of:
-//   supabase/functions/scanner/index.ts
+// Source files (in dependency order):
 //   supabase/functions/_shared/hyperliquid.ts
 //   supabase/functions/_shared/telegram.ts
 //   supabase/functions/_shared/frameworks/types.ts
 //   supabase/functions/_shared/frameworks/liquidation_hunt.ts
+//   supabase/functions/_shared/technical.ts
+//   supabase/functions/_shared/frameworks/narrative_breakout.ts
+//   supabase/functions/_shared/frameworks/mean_reversion.ts
 //   supabase/functions/_shared/frameworks/index.ts
+//   supabase/functions/scanner/index.ts
 //
-// The split files are kept for readability in the repo. When you update
-// any of them, re-flatten into this file before deploying through the
-// dashboard. The behaviour and exports are identical.
+// Paste this entire file into the Supabase dashboard scanner Edge
+// Function and click Deploy. The split files in supabase/functions/
+// remain the source of truth; this is just the deploy artefact.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.46.1'
 
 // ---------------------------------------------------------------------
-// Hyperliquid client
+// supabase/functions/_shared/hyperliquid.ts
 // ---------------------------------------------------------------------
 
+// Deno runtime Hyperliquid client used by the scanner Edge Function.
+// The public `info` endpoint handles all the data we need; no auth.
+
 const INFO_URL = 'https://api.hyperliquid.xyz/info'
-const HL_TIMEOUT_MS = 10_000
+const DEFAULT_TIMEOUT_MS = 10_000
 
 type MarketData = {
   symbol: string
@@ -60,11 +67,16 @@ type RawCandle = {
   l: string | number
   c: string | number
   v: string | number
+  s?: string
+  i?: string
 }
 
+// POSTs JSON to the Hyperliquid info endpoint. Retries once on transport
+// failure, fails hard on the second attempt. Throws with a message the
+// scanner can log per-pair without crashing the whole scan.
 async function postInfo<T>(
   body: Record<string, unknown>,
-  timeoutMs = HL_TIMEOUT_MS,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
 ): Promise<T> {
   async function once(): Promise<T> {
     const controller = new AbortController()
@@ -100,6 +112,8 @@ function toNumber(value: string | number | undefined): number {
   return Number.isFinite(n) ? n : 0
 }
 
+// Fetches every perpetual with its current market context in a single
+// call. Result is keyed by symbol for O(1) lookups inside the scanner.
 async function getAllMarketData(): Promise<Map<string, MarketData>> {
   const response = await postInfo<MetaAndAssetCtxsResponse>({
     type: 'metaAndAssetCtxs',
@@ -121,6 +135,8 @@ async function getAllMarketData(): Promise<Map<string, MarketData>> {
   return out
 }
 
+// Fetches up to `lookback` candles for a symbol ending now. Hyperliquid
+// expects startTime/endTime in milliseconds, and returns newest-last.
 async function getCandles(
   symbol: string,
   interval: '1h' | '4h',
@@ -149,8 +165,12 @@ async function getCandles(
 }
 
 // ---------------------------------------------------------------------
-// Telegram notifier
+// supabase/functions/_shared/telegram.ts
 // ---------------------------------------------------------------------
+
+// Deno runtime Telegram notifier. Opt-in via env: if the token or chat
+// id are unset we return false and skip the notification, so a
+// partially-configured deployment still runs cleanly.
 
 type TelegramAlertPayload = {
   framework_name: string
@@ -233,8 +253,10 @@ async function sendTelegramAlert(
 }
 
 // ---------------------------------------------------------------------
-// Framework interface
+// supabase/functions/_shared/frameworks/types.ts
 // ---------------------------------------------------------------------
+
+type NarrativeHeat = 'hot' | 'warm' | 'cool' | 'cold'
 
 type MarketSnapshot = {
   symbol: string
@@ -246,6 +268,8 @@ type MarketSnapshot = {
   candles4h?: Candle[]
   fundingHistory?: number[]
   oiHistory?: number[]
+  narrativeHeat?: NarrativeHeat
+  btcReturn24h?: number
 }
 
 type FrameworkResult = {
@@ -262,6 +286,8 @@ type DataRequirements = {
   needsCandles4h?: boolean
   needsFundingHistory?: boolean
   needsOiHistory?: boolean
+  needsNarrativeHeat?: boolean
+  needsBtcReturn24h?: boolean
 }
 
 type Framework = {
@@ -269,18 +295,32 @@ type Framework = {
   name: string
   description: string
   dataRequirements: DataRequirements
-  evaluate(snapshot: MarketSnapshot): FrameworkResult
+  evaluate(
+    snapshot: MarketSnapshot,
+    thresholds: Record<string, number>,
+  ): FrameworkResult
 }
 
 // ---------------------------------------------------------------------
-// Liquidation hunt framework
+// supabase/functions/_shared/frameworks/liquidation_hunt.ts
 // ---------------------------------------------------------------------
 
-const FUNDING_THRESHOLD = 0.0001
-const OI_MULTIPLIER = 1.3
-const WICK_BODY_RATIO = 1.5
-const STOP_BUFFER = 0.002
-const TARGET_R_MULTIPLE = 2
+// Framework 3: Liquidation Hunt
+// -----------------------------
+// Rationale: When funding is extreme and OI is elevated, crowded trades
+// line up on one side. A sharp wick in the opposite direction, rejected
+// back inside the previous range, is a common liquidation cascade
+// signature: forced liquidations blow through stops, then price snaps
+// back as the imbalance clears.
+//
+// All four conditions must hold for the alert to fire.
+//
+// Thresholds (loaded at runtime from framework_thresholds):
+//   funding_threshold       absolute hourly funding floor
+//   oi_elevation_multiplier OI must exceed this multiple of 24h avg
+//   wick_to_body_ratio      rejection wick / body
+//   stop_buffer             fractional buffer beyond wick extreme
+//   target_rr_multiple      R multiple for target
 
 const liquidationHuntFramework: Framework = {
   id: 'liquidation_hunt_v1',
@@ -292,19 +332,34 @@ const liquidationHuntFramework: Framework = {
     needsFundingHistory: false,
     needsOiHistory: true,
   },
-  evaluate(snapshot: MarketSnapshot): FrameworkResult {
+  evaluate(
+    snapshot: MarketSnapshot,
+    thresholds: Record<string, number>,
+  ): FrameworkResult {
+    const fundingThreshold = thresholds.funding_threshold!
+    const oiMultiplier = thresholds.oi_elevation_multiplier!
+    const wickBodyRatio = thresholds.wick_to_body_ratio!
+    const stopBuffer = thresholds.stop_buffer!
+    const targetRMultiple = thresholds.target_rr_multiple!
+
     const conditionValues: Record<string, number | string | boolean> = {
       funding: snapshot.funding,
       openInterest: snapshot.openInterest,
     }
 
+    // Condition 1: absolute funding above threshold. Positive funding
+    // means longs pay shorts, which usually means price has been pushed
+    // up by crowded longs. Negative is the mirror.
     const absFunding = Math.abs(snapshot.funding)
     conditionValues.absFunding = absFunding
-    conditionValues.fundingThreshold = FUNDING_THRESHOLD
-    if (absFunding <= FUNDING_THRESHOLD) {
+    conditionValues.fundingThreshold = fundingThreshold
+    if (absFunding <= fundingThreshold) {
       return { triggered: false, conditionValues }
     }
 
+    // Condition 2: OI elevated above the 24h rolling average. Empty
+    // history means we haven't captured enough snapshots yet; fail
+    // gracefully rather than firing a noisy first-minute alert.
     const oiHistory = snapshot.oiHistory ?? []
     if (oiHistory.length === 0) {
       conditionValues.oiHistoryLength = 0
@@ -316,10 +371,12 @@ const liquidationHuntFramework: Framework = {
     conditionValues.oiAvg24h = oiAvg
     conditionValues.oiRatio = oiRatio
     conditionValues.oiDeltaPct = oiDeltaPct
-    if (oiRatio < OI_MULTIPLIER) {
+    if (oiRatio < oiMultiplier) {
       return { triggered: false, conditionValues }
     }
 
+    // Condition 3 and 4: the most recent 1h candle must have a wick
+    // opposite to the funding bias and close back inside the range.
     const candles = snapshot.candles1h ?? []
     if (candles.length === 0) {
       conditionValues.candleAvailable = false
@@ -337,6 +394,9 @@ const liquidationHuntFramework: Framework = {
     conditionValues.upperWick = upperWick
     conditionValues.lowerWick = lowerWick
 
+    // A zero-body candle (doji) would divide by zero; treat body as a
+    // tiny epsilon so the ratio is stable without dropping valid
+    // rejections.
     const effectiveBody = Math.max(body, Math.abs(candle.c) * 1e-6, 1e-9)
 
     let direction: 'long' | 'short'
@@ -344,10 +404,12 @@ const liquidationHuntFramework: Framework = {
     let rejected: boolean
 
     if (snapshot.funding > 0) {
+      // Positive funding: crowd is long, look for an upper wick that
+      // rejected into the close. Suggested trade is a short.
       direction = 'short'
       const wickRatio = upperWick / effectiveBody
       conditionValues.wickRatio = wickRatio
-      if (wickRatio < WICK_BODY_RATIO) {
+      if (wickRatio < wickBodyRatio) {
         return { triggered: false, conditionValues }
       }
       rejected = candle.c < candle.h
@@ -355,12 +417,14 @@ const liquidationHuntFramework: Framework = {
       if (!rejected) {
         return { triggered: false, conditionValues }
       }
-      stop = candle.h * (1 + STOP_BUFFER)
+      stop = candle.h * (1 + stopBuffer)
     } else {
+      // Negative funding: crowd is short, look for a lower wick that
+      // rejected back up. Suggested trade is a long.
       direction = 'long'
       const wickRatio = lowerWick / effectiveBody
       conditionValues.wickRatio = wickRatio
-      if (wickRatio < WICK_BODY_RATIO) {
+      if (wickRatio < wickBodyRatio) {
         return { triggered: false, conditionValues }
       }
       rejected = candle.c > candle.l
@@ -368,15 +432,15 @@ const liquidationHuntFramework: Framework = {
       if (!rejected) {
         return { triggered: false, conditionValues }
       }
-      stop = candle.l * (1 - STOP_BUFFER)
+      stop = candle.l * (1 - stopBuffer)
     }
 
     const entry = snapshot.markPrice
     const risk = Math.abs(entry - stop)
     const target =
       direction === 'short'
-        ? entry - risk * TARGET_R_MULTIPLE
-        : entry + risk * TARGET_R_MULTIPLE
+        ? entry - risk * targetRMultiple
+        : entry + risk * targetRMultiple
 
     return {
       triggered: true,
@@ -389,16 +453,670 @@ const liquidationHuntFramework: Framework = {
   },
 }
 
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/technical.ts
+// ---------------------------------------------------------------------
+
+// Shared technical analysis helpers for the Deno scanner runtime.
+//
+// Kept in lockstep with src/lib/technical.ts: same function names, same
+// signatures, same numeric results. If you touch one, touch the other.
+
+
+// Internal fractal window: a swing needs this many confirming candles
+// on each side. Small enough to pick up meaningful local extremes on
+// 4h candles without being overly restrictive.
+const FRACTAL_WINDOW = 2
+
+/**
+ * Simple moving average of the last `period` values.
+ *
+ * @example
+ *   sma([1, 2, 3, 4, 5], 3) // 4
+ *   sma([1, 2], 5)          // NaN (not enough samples)
+ */
+function sma(values: number[], period: number): number {
+  if (period <= 0 || values.length < period) return NaN
+  let sum = 0
+  for (let i = values.length - period; i < values.length; i++) {
+    sum += values[i]!
+  }
+  return sum / period
+}
+
+/**
+ * Wilder's RSI computed over the full closes array. Returns the RSI at
+ * the last close. Needs at least `period + 1` samples; returns NaN
+ * otherwise.
+ *
+ * @example
+ *   rsi([44, 44.3, 44.1, 43.6, 44.3, 44.8, 45.1, 45.6, 45.3, 45.7,
+ *        45.2, 45, 44.7, 44.5, 45], 14) // around 61
+ */
+function rsi(closes: number[], period: number): number {
+  if (period <= 0 || closes.length <= period) return NaN
+  let gains = 0
+  let losses = 0
+  for (let i = 1; i <= period; i++) {
+    const diff = closes[i]! - closes[i - 1]!
+    if (diff >= 0) gains += diff
+    else losses -= diff
+  }
+  let avgGain = gains / period
+  let avgLoss = losses / period
+  for (let i = period + 1; i < closes.length; i++) {
+    const diff = closes[i]! - closes[i - 1]!
+    const gain = diff > 0 ? diff : 0
+    const loss = diff < 0 ? -diff : 0
+    avgGain = (avgGain * (period - 1) + gain) / period
+    avgLoss = (avgLoss * (period - 1) + loss) / period
+  }
+  if (avgLoss === 0) return 100
+  const rs = avgGain / avgLoss
+  return 100 - 100 / (1 + rs)
+}
+
+/**
+ * Swing highs inside the most recent `lookback` candles. A swing high
+ * is a candle whose high exceeds the FRACTAL_WINDOW candles either
+ * side. Returned in chronological order (oldest first).
+ *
+ * @example
+ *   findSwingHighs(candles, 50) // [{ index: 32, price: 1.82 }, ...]
+ */
+function findSwingHighs(
+  candles: Candle[],
+  lookback: number,
+): { index: number; price: number }[] {
+  const out: { index: number; price: number }[] = []
+  const n = candles.length
+  const start = Math.max(FRACTAL_WINDOW, n - lookback)
+  for (let i = start; i < n - FRACTAL_WINDOW; i++) {
+    const high = candles[i]!.h
+    let isSwing = true
+    for (let j = i - FRACTAL_WINDOW; j <= i + FRACTAL_WINDOW; j++) {
+      if (j === i) continue
+      if (candles[j]!.h > high) {
+        isSwing = false
+        break
+      }
+    }
+    if (isSwing) out.push({ index: i, price: high })
+  }
+  return out
+}
+
+/**
+ * Swing lows inside the most recent `lookback` candles, mirror of
+ * findSwingHighs.
+ *
+ * @example
+ *   findSwingLows(candles, 50) // [{ index: 18, price: 1.41 }, ...]
+ */
+function findSwingLows(
+  candles: Candle[],
+  lookback: number,
+): { index: number; price: number }[] {
+  const out: { index: number; price: number }[] = []
+  const n = candles.length
+  const start = Math.max(FRACTAL_WINDOW, n - lookback)
+  for (let i = start; i < n - FRACTAL_WINDOW; i++) {
+    const low = candles[i]!.l
+    let isSwing = true
+    for (let j = i - FRACTAL_WINDOW; j <= i + FRACTAL_WINDOW; j++) {
+      if (j === i) continue
+      if (candles[j]!.l < low) {
+        isSwing = false
+        break
+      }
+    }
+    if (isSwing) out.push({ index: i, price: low })
+  }
+  return out
+}
+
+/**
+ * Most recent swing high whose age (distance from the last candle) is
+ * at least `minAge`. Null when no such swing exists.
+ *
+ * @example
+ *   mostRecentSwingHigh(candles, 50, 10) // { index: 78, price: 2.14 }
+ */
+function mostRecentSwingHigh(
+  candles: Candle[],
+  lookback: number,
+  minAge: number,
+): { index: number; price: number } | null {
+  const swings = findSwingHighs(candles, lookback)
+  const lastIdx = candles.length - 1
+  for (let i = swings.length - 1; i >= 0; i--) {
+    const s = swings[i]!
+    if (lastIdx - s.index >= minAge) return s
+  }
+  return null
+}
+
+/**
+ * Most recent swing low whose age is at least `minAge`. Null otherwise.
+ *
+ * @example
+ *   mostRecentSwingLow(candles, 50, 10) // { index: 65, price: 1.52 }
+ */
+function mostRecentSwingLow(
+  candles: Candle[],
+  lookback: number,
+  minAge: number,
+): { index: number; price: number } | null {
+  const swings = findSwingLows(candles, lookback)
+  const lastIdx = candles.length - 1
+  for (let i = swings.length - 1; i >= 0; i--) {
+    const s = swings[i]!
+    if (lastIdx - s.index >= minAge) return s
+  }
+  return null
+}
+
+/**
+ * Nearest round-number level for a price, with step sizes that scale
+ * by magnitude.
+ *
+ *   price < $1          step $0.01
+ *   $1 - $10            step $0.25
+ *   $10 - $100          step $1
+ *   $100 - $1000        step $10
+ *   >= $1000            step $100
+ *
+ * @example
+ *   roundNumberProximity(47.30)   // 47
+ *   roundNumberProximity(3.12)    // 3
+ *   roundNumberProximity(1275)    // 1300
+ */
+function roundNumberProximity(price: number): number {
+  const abs = Math.abs(price)
+  let step: number
+  if (abs < 1) step = 0.01
+  else if (abs < 10) step = 0.25
+  else if (abs < 100) step = 1
+  else if (abs < 1000) step = 10
+  else step = 100
+  return Math.round(price / step) * step
+}
+
+/**
+ * Absolute body size of a candle.
+ *
+ * @example
+ *   candleBody({ o: 10, c: 12, h: 13, l: 9, t: 0, v: 0 }) // 2
+ */
+function candleBody(c: Candle): number {
+  return Math.abs(c.c - c.o)
+}
+
+/**
+ * Upper wick length (high minus the top of the body).
+ *
+ * @example
+ *   candleUpperWick({ o: 10, c: 12, h: 13, l: 9, t: 0, v: 0 }) // 1
+ */
+function candleUpperWick(c: Candle): number {
+  return c.h - Math.max(c.o, c.c)
+}
+
+/**
+ * Lower wick length (bottom of the body minus low).
+ *
+ * @example
+ *   candleLowerWick({ o: 10, c: 12, h: 13, l: 9, t: 0, v: 0 }) // 1
+ */
+function candleLowerWick(c: Candle): number {
+  return Math.min(c.o, c.c) - c.l
+}
+
+/**
+ * Position of the close within the candle range, 0 at the low and 1
+ * at the high. Returns 0.5 for a zero-range candle so callers don't
+ * divide by zero.
+ *
+ * @example
+ *   candleClosePosition({ o: 10, c: 12, h: 13, l: 9, t: 0, v: 0 }) // 0.75
+ */
+function candleClosePosition(c: Candle): number {
+  const range = c.h - c.l
+  if (range <= 0) return 0.5
+  return (c.c - c.l) / range
+}
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/frameworks/narrative_breakout.ts
+// ---------------------------------------------------------------------
+
+// Framework 1: Narrative Breakout
+// -------------------------------
+// Rationale: A symbol tagged as "hot" narrative that breaks out above a
+// 20-candle 4h range on elevated volume, while outperforming BTC over
+// the last 24h and with funding in a healthy band (positive but not
+// overheated), is a high-conviction trend continuation setup. Heat
+// numeric thresholds (heat_score_absolute, heat_delta_6h) stay dormant
+// until a news module writes them; for now the categorical
+// narrativeHeat === 'hot' stands in.
+//
+// Thresholds:
+//   breakout_lookback_candles   number of prior 4h candles for level
+//   volume_multiplier           volume / SMA20 floor
+//   btc_outperformance_24h      asset return minus BTC return floor
+//   funding_min_hourly          funding floor
+//   funding_max_hourly          funding ceiling
+//
+// Stop and target are fixed: 0.5% below the breakout level and 2R.
+
+const STOP_BUFFER = 0.005
+const TARGET_R_MULTIPLE = 2
+
+const narrativeBreakoutFramework: Framework = {
+  id: 'narrative_breakout_v1',
+  name: 'Narrative breakout',
+  description:
+    'Hot narrative symbol breaking a 20-candle 4h range on volume with BTC outperformance.',
+  dataRequirements: {
+    needsCandles4h: true,
+    needsNarrativeHeat: true,
+    needsBtcReturn24h: true,
+  },
+  evaluate(
+    snapshot: MarketSnapshot,
+    thresholds: Record<string, number>,
+  ): FrameworkResult {
+    const lookback = thresholds.breakout_lookback_candles!
+    const volumeMultiplier = thresholds.volume_multiplier!
+    const outperformanceFloor = thresholds.btc_outperformance_24h!
+    const fundingMin = thresholds.funding_min_hourly!
+    const fundingMax = thresholds.funding_max_hourly!
+
+    const conditionValues: Record<string, number | string | boolean> = {
+      heat: snapshot.narrativeHeat ?? 'unknown',
+      funding: snapshot.funding,
+    }
+
+    // Condition 1: narrative tag must be hot. Heat numeric thresholds
+    // (heat_score_absolute, heat_delta_6h) are dormant until the news
+    // module ships.
+    if (snapshot.narrativeHeat !== 'hot') {
+      return { triggered: false, conditionValues }
+    }
+
+    // Condition 2a: breakout above the high of the previous `lookback`
+    // candles. Needs lookback + 1 candles so we can separate "previous"
+    // from the current closed candle.
+    const candles = snapshot.candles4h ?? []
+    if (candles.length < lookback + 1) {
+      conditionValues.candleCount = candles.length
+      return { triggered: false, conditionValues }
+    }
+    const current = candles[candles.length - 1]!
+    const priors = candles.slice(
+      candles.length - 1 - lookback,
+      candles.length - 1,
+    )
+    let breakoutLevel = priors[0]!.h
+    for (const c of priors) {
+      if (c.h > breakoutLevel) breakoutLevel = c.h
+    }
+    conditionValues.breakout_level = breakoutLevel
+    conditionValues.current_close = current.c
+    if (current.c <= breakoutLevel) {
+      return { triggered: false, conditionValues }
+    }
+
+    // Condition 2b: volume above volume_multiplier * SMA20 of the
+    // previous `lookback` candles' volumes.
+    const priorVolumes = priors.map((c) => c.v)
+    const volumeSma = sma(priorVolumes, lookback)
+    const volumeRatio = volumeSma > 0 ? current.v / volumeSma : 0
+    conditionValues.volume_ratio = volumeRatio
+    if (!(volumeRatio > volumeMultiplier)) {
+      return { triggered: false, conditionValues }
+    }
+
+    // Condition 3: asset 24h return minus BTC 24h return must clear
+    // the outperformance floor. 24h on 4h candles is 6 bars back.
+    if (snapshot.btcReturn24h === undefined) {
+      conditionValues.btcReturnAvailable = false
+      return { triggered: false, conditionValues }
+    }
+    if (candles.length < 7) {
+      conditionValues.candleCount = candles.length
+      return { triggered: false, conditionValues }
+    }
+    const ref = candles[candles.length - 7]!
+    const assetReturn24h = ref.c > 0 ? (current.c - ref.c) / ref.c : 0
+    const outperformance = assetReturn24h - snapshot.btcReturn24h
+    conditionValues.asset_return_24h = assetReturn24h
+    conditionValues.btc_return_24h = snapshot.btcReturn24h
+    conditionValues.outperformance = outperformance
+    if (outperformance < outperformanceFloor) {
+      return { triggered: false, conditionValues }
+    }
+
+    // Condition 4: funding in the healthy band (positive but not hot).
+    if (!(snapshot.funding > fundingMin && snapshot.funding < fundingMax)) {
+      return { triggered: false, conditionValues }
+    }
+
+    const entry = snapshot.markPrice
+    const stop = breakoutLevel * (1 - STOP_BUFFER)
+    const risk = entry - stop
+    const target = entry + TARGET_R_MULTIPLE * risk
+
+    return {
+      triggered: true,
+      conditionValues,
+      suggestedDirection: 'long',
+      suggestedEntry: entry,
+      suggestedStop: stop,
+      suggestedTarget: target,
+    }
+  },
+}
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/frameworks/mean_reversion.ts
+// ---------------------------------------------------------------------
+
+// Framework 2: Mean Reversion
+// ---------------------------
+// Rationale: A stretched move into a prior swing level (or a round
+// number) that prints an RSI divergence on the 4h and a rejection
+// candle, with funding stretched in the same direction, is a classic
+// mean-reversion setup. The rejection wick marks the stop; the entry
+// is the mark price; the target is 2R.
+//
+// Long setup requires a bullish rejection at support; short setup is
+// the mirror at resistance. Long is evaluated first; if it does not
+// qualify we fall through to the short checks.
+//
+// Thresholds:
+//   swing_lookback_candles             lookback for swing detection
+//   swing_min_age_candles              min age of the swing level
+//   level_proximity_pct                how close price must be to level
+//   rsi_period                         RSI period
+//   rsi_lookback_candles               RSI divergence / breakout lookback
+//   rsi_overbought / rsi_oversold      RSI gates
+//   rejection_wick_body_ratio          wick / body for rejection candle
+//   rejection_close_position_threshold close position in range
+//   funding_stretch_long_setup         funding <= for long
+//   funding_stretch_short_setup        funding >= for short
+
+const STOP_BUFFER__mean_reversion = 0.002
+const TARGET_R_MULTIPLE__mean_reversion = 2
+
+function stepForPrice(p: number): number {
+  const a = Math.abs(p)
+  if (a < 1) return 0.01
+  if (a < 10) return 0.25
+  if (a < 100) return 1
+  if (a < 1000) return 10
+  return 100
+}
+
+function roundBelow(p: number): number {
+  const step = stepForPrice(p)
+  return Math.floor(p / step) * step
+}
+
+function roundAbove(p: number): number {
+  const step = stepForPrice(p)
+  return Math.ceil(p / step) * step
+}
+
+const meanReversionFramework: Framework = {
+  id: 'mean_reversion_v1',
+  name: 'Mean reversion',
+  description:
+    'Rejection at a prior 4h swing level or round number with RSI divergence and stretched funding.',
+  dataRequirements: {
+    needsCandles4h: true,
+  },
+  evaluate(
+    snapshot: MarketSnapshot,
+    thresholds: Record<string, number>,
+  ): FrameworkResult {
+    const swingLookback = thresholds.swing_lookback_candles!
+    const swingMinAge = thresholds.swing_min_age_candles!
+    const levelProximity = thresholds.level_proximity_pct!
+    const rsiPeriod = thresholds.rsi_period!
+    const rsiLookback = thresholds.rsi_lookback_candles!
+    const rsiOverbought = thresholds.rsi_overbought!
+    const rsiOversold = thresholds.rsi_oversold!
+    const rejectionWickRatio = thresholds.rejection_wick_body_ratio!
+    const rejectionClosePos = thresholds.rejection_close_position_threshold!
+    const fundingStretchLong = thresholds.funding_stretch_long_setup!
+    const fundingStretchShort = thresholds.funding_stretch_short_setup!
+
+    const conditionValues: Record<string, number | string | boolean> = {
+      funding: snapshot.funding,
+    }
+
+    const candles = snapshot.candles4h ?? []
+    const minNeeded = Math.max(
+      rsiPeriod + 2,
+      rsiLookback + 1,
+      swingLookback + 1,
+    )
+    if (candles.length < minNeeded) {
+      conditionValues.candleCount = candles.length
+      return { triggered: false, conditionValues }
+    }
+
+    const current = candles[candles.length - 1]!
+    const closes = candles.map((c) => c.c)
+    const currentRsi = rsi(closes, rsiPeriod)
+    conditionValues.rsi = currentRsi
+    conditionValues.markPrice = snapshot.markPrice
+
+    // ============================== LONG ==============================
+    const longSwing = mostRecentSwingLow(candles, swingLookback, swingMinAge)
+    const rBelow = roundBelow(snapshot.markPrice)
+    const nearSwingLong =
+      longSwing !== null &&
+      Math.abs(snapshot.markPrice - longSwing.price) / snapshot.markPrice <=
+        levelProximity
+    const nearRoundLong =
+      rBelow > 0 &&
+      Math.abs(snapshot.markPrice - rBelow) / snapshot.markPrice <=
+        levelProximity
+    conditionValues.longSwingLevel = longSwing ? longSwing.price : 0
+    conditionValues.longRoundBelow = rBelow
+    conditionValues.longNearLevel = nearSwingLong || nearRoundLong
+
+    if (nearSwingLong || nearRoundLong) {
+      // Current candle must print a new 20-candle price low.
+      let lowestPrior = Infinity
+      for (
+        let i = Math.max(0, candles.length - rsiLookback);
+        i < candles.length - 1;
+        i++
+      ) {
+        const lo = candles[i]!.l
+        if (lo < lowestPrior) lowestPrior = lo
+      }
+      const makesNewLow = current.l <= lowestPrior
+      conditionValues.longMakesNewLow = makesNewLow
+
+      // RSI divergence: RSI at the most recent prior swing low inside
+      // the divergence lookback must be below currentRsi.
+      const divSwing = mostRecentSwingLow(candles, rsiLookback, 1)
+      let bullishDivergence = false
+      if (divSwing !== null) {
+        const closesAtSwing = closes.slice(0, divSwing.index + 1)
+        const swingRsi = rsi(closesAtSwing, rsiPeriod)
+        conditionValues.longSwingRsi = swingRsi
+        if (Number.isFinite(swingRsi) && Number.isFinite(currentRsi)) {
+          bullishDivergence = currentRsi > swingRsi
+        }
+      }
+      conditionValues.longBullishDivergence = bullishDivergence
+
+      const rsiOk = Number.isFinite(currentRsi) && currentRsi < rsiOversold
+
+      // Rejection candle: lower wick dominates, bullish close, close
+      // in the upper portion of the range.
+      const body = candleBody(current)
+      const lowerWick = candleLowerWick(current)
+      const closePos = candleClosePosition(current)
+      const effectiveBody = Math.max(body, Math.abs(current.c) * 1e-6, 1e-9)
+      const wickRatio = lowerWick / effectiveBody
+      const bullishCandle = current.c > current.o
+      const closePosOk = closePos >= rejectionClosePos
+      const rejection =
+        wickRatio > rejectionWickRatio && bullishCandle && closePosOk
+      conditionValues.longWickRatio = wickRatio
+      conditionValues.longClosePosition = closePos
+      conditionValues.longRejection = rejection
+
+      const fundingOk = snapshot.funding <= fundingStretchLong
+      conditionValues.longFundingOk = fundingOk
+
+      if (makesNewLow && bullishDivergence && rsiOk && rejection && fundingOk) {
+        const entry = snapshot.markPrice
+        const stop = current.l * (1 - STOP_BUFFER__mean_reversion)
+        const risk = entry - stop
+        const target = entry + TARGET_R_MULTIPLE__mean_reversion * risk
+        return {
+          triggered: true,
+          conditionValues,
+          suggestedDirection: 'long',
+          suggestedEntry: entry,
+          suggestedStop: stop,
+          suggestedTarget: target,
+        }
+      }
+    }
+
+    // ============================== SHORT =============================
+    const shortSwing = mostRecentSwingHigh(candles, swingLookback, swingMinAge)
+    const rAbove = roundAbove(snapshot.markPrice)
+    const nearSwingShort =
+      shortSwing !== null &&
+      Math.abs(snapshot.markPrice - shortSwing.price) / snapshot.markPrice <=
+        levelProximity
+    const nearRoundShort =
+      rAbove > 0 &&
+      Math.abs(snapshot.markPrice - rAbove) / snapshot.markPrice <=
+        levelProximity
+    conditionValues.shortSwingLevel = shortSwing ? shortSwing.price : 0
+    conditionValues.shortRoundAbove = rAbove
+    conditionValues.shortNearLevel = nearSwingShort || nearRoundShort
+
+    if (nearSwingShort || nearRoundShort) {
+      let highestPrior = -Infinity
+      for (
+        let i = Math.max(0, candles.length - rsiLookback);
+        i < candles.length - 1;
+        i++
+      ) {
+        const hi = candles[i]!.h
+        if (hi > highestPrior) highestPrior = hi
+      }
+      const makesNewHigh = current.h >= highestPrior
+      conditionValues.shortMakesNewHigh = makesNewHigh
+
+      const divSwing = mostRecentSwingHigh(candles, rsiLookback, 1)
+      let bearishDivergence = false
+      if (divSwing !== null) {
+        const closesAtSwing = closes.slice(0, divSwing.index + 1)
+        const swingRsi = rsi(closesAtSwing, rsiPeriod)
+        conditionValues.shortSwingRsi = swingRsi
+        if (Number.isFinite(swingRsi) && Number.isFinite(currentRsi)) {
+          bearishDivergence = currentRsi < swingRsi
+        }
+      }
+      conditionValues.shortBearishDivergence = bearishDivergence
+
+      const rsiOk = Number.isFinite(currentRsi) && currentRsi > rsiOverbought
+
+      const body = candleBody(current)
+      const upperWick = candleUpperWick(current)
+      const closePos = candleClosePosition(current)
+      const effectiveBody = Math.max(body, Math.abs(current.c) * 1e-6, 1e-9)
+      const wickRatio = upperWick / effectiveBody
+      const bearishCandle = current.c < current.o
+      const closePosOk = closePos <= 1 - rejectionClosePos
+      const rejection =
+        wickRatio > rejectionWickRatio && bearishCandle && closePosOk
+      conditionValues.shortWickRatio = wickRatio
+      conditionValues.shortClosePosition = closePos
+      conditionValues.shortRejection = rejection
+
+      const fundingOk = snapshot.funding >= fundingStretchShort
+      conditionValues.shortFundingOk = fundingOk
+
+      if (
+        makesNewHigh &&
+        bearishDivergence &&
+        rsiOk &&
+        rejection &&
+        fundingOk
+      ) {
+        const entry = snapshot.markPrice
+        const stop = current.h * (1 + STOP_BUFFER__mean_reversion)
+        const risk = stop - entry
+        const target = entry - TARGET_R_MULTIPLE__mean_reversion * risk
+        return {
+          triggered: true,
+          conditionValues,
+          suggestedDirection: 'short',
+          suggestedEntry: entry,
+          suggestedStop: stop,
+          suggestedTarget: target,
+        }
+      }
+    }
+
+    return { triggered: false, conditionValues }
+  },
+}
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/frameworks/index.ts
+// ---------------------------------------------------------------------
+
+// Registered frameworks keyed by id. Adding a new framework is:
+//  1. implement it in a new file exporting a Framework object
+//  2. import it here and add it to this Map
+// The scanner iterates the Map on every tick.
 const FRAMEWORKS: Map<string, Framework> = new Map([
+  [narrativeBreakoutFramework.id, narrativeBreakoutFramework],
+  [meanReversionFramework.id, meanReversionFramework],
   [liquidationHuntFramework.id, liquidationHuntFramework],
 ])
 
 // ---------------------------------------------------------------------
-// Scanner
+// supabase/functions/scanner/index.ts
 // ---------------------------------------------------------------------
 
+// Scanner Edge Function.
+//
+// Runs every minute via pg_cron. On each tick:
+//   1. load the active universe
+//   2. bulk-fetch current market data from Hyperliquid
+//   3. write one market_snapshots row per pair (rolling history)
+//   4. load framework thresholds and narrative tags from the database
+//   5. fetch BTC 4h candles once for the outperformance baseline
+//   6. fetch any additional per-pair data the frameworks need, with
+//      bounded concurrency so we don't blow rate limits
+//   7. evaluate every framework against every pair using per-framework
+//      thresholds; emit alerts for triggers
+//
+// Errors on a single pair are logged and swallowed so the rest of the
+// scan still runs. A soft 45s and hard 55s time budget caps the per-tick
+// work so cron doesn't pile up if Hyperliquid is slow.
+
+
+
 const CONCURRENCY = 5
-const HISTORY_WINDOW_MINUTES = 60 * 24
+const HISTORY_WINDOW_MINUTES = 60 * 24 // 24 hours
+const SOFT_BUDGET_MS = 45_000
+const HARD_BUDGET_MS = 55_000
 const APP_URL =
   Deno.env.get('DIZZY_TRADE_APP_URL') ?? 'https://dizzy-trade.vercel.app'
 
@@ -413,6 +1131,8 @@ type AggregatedRequirements = {
   needsCandles4h: boolean
   needsOiHistory: boolean
   needsFundingHistory: boolean
+  needsNarrativeHeat: boolean
+  needsBtcReturn24h: boolean
 }
 
 function aggregateRequirements(
@@ -423,6 +1143,8 @@ function aggregateRequirements(
     needsCandles4h: false,
     needsOiHistory: false,
     needsFundingHistory: false,
+    needsNarrativeHeat: false,
+    needsBtcReturn24h: false,
   }
   for (const f of frameworks) {
     const r: DataRequirements = f.dataRequirements
@@ -430,10 +1152,14 @@ function aggregateRequirements(
     if (r.needsCandles4h) out.needsCandles4h = true
     if (r.needsOiHistory) out.needsOiHistory = true
     if (r.needsFundingHistory) out.needsFundingHistory = true
+    if (r.needsNarrativeHeat) out.needsNarrativeHeat = true
+    if (r.needsBtcReturn24h) out.needsBtcReturn24h = true
   }
   return out
 }
 
+// Simple concurrency pool: run `fn` over every item, but never more than
+// `limit` in flight at once. Preserves result ordering by index.
 async function pMap<T, R>(
   items: T[],
   limit: number,
@@ -478,6 +1204,61 @@ async function loadUniverse(): Promise<UniverseRow[]> {
     .eq('is_active', true)
   if (error) throw new Error(`universe load failed: ${error.message}`)
   return (data ?? []) as UniverseRow[]
+}
+
+// Nested map: framework_id -> key -> value. Frameworks that have no row
+// in the table get an empty inner map and will error on missing keys,
+// which surfaces quickly in logs without silently misfiring.
+async function loadThresholds(): Promise<Map<string, Record<string, number>>> {
+  const client = supabase()
+  const { data, error } = await client
+    .from('framework_thresholds')
+    .select('framework_id, key, value')
+  if (error) {
+    throw new Error(`threshold load failed: ${error.message}`)
+  }
+  const out = new Map<string, Record<string, number>>()
+  for (const row of data ?? []) {
+    const frameworkId = String(row.framework_id)
+    const bucket = out.get(frameworkId) ?? {}
+    bucket[String(row.key)] = Number(row.value)
+    out.set(frameworkId, bucket)
+  }
+  return out
+}
+
+async function loadNarrativeHeat(): Promise<Map<string, NarrativeHeat>> {
+  const client = supabase()
+  const { data, error } = await client
+    .from('narrative_tags')
+    .select('symbol, heat_level')
+  if (error) {
+    console.warn(`[scanner] narrative load failed: ${error.message}`)
+    return new Map()
+  }
+  const out = new Map<string, NarrativeHeat>()
+  for (const row of data ?? []) {
+    out.set(String(row.symbol), row.heat_level as NarrativeHeat)
+  }
+  return out
+}
+
+// Price return over the last 24h using 4h candles. 6 bars back gives
+// the close 24h ago. Returns 0 if the data isn't there so downstream
+// conditions degrade gracefully rather than triggering.
+async function loadBtcReturn24h(): Promise<number> {
+  try {
+    const candles = await getCandles('BTC', '4h', 10)
+    if (candles.length < 7) return 0
+    const latest = candles[candles.length - 1]!.c
+    const ref = candles[candles.length - 7]!.c
+    if (ref <= 0) return 0
+    return (latest - ref) / ref
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(`[scanner] BTC baseline failed: ${message}`)
+    return 0
+  }
 }
 
 type SnapshotInsert = {
@@ -566,6 +1347,7 @@ async function runScan(): Promise<{
   scanned: number
   triggered: number
   durationMs: number
+  truncated: boolean
 }> {
   const started = Date.now()
 
@@ -573,8 +1355,11 @@ async function runScan(): Promise<{
   const symbols = universe.map((u) => u.symbol)
   const requirements = aggregateRequirements(Array.from(FRAMEWORKS.values()))
 
-  const markets = await getAllMarketData()
+  // Bulk market data: single request covers every Hyperliquid perp.
+  const markets: Map<string, MarketData> = await getAllMarketData()
 
+  // Write snapshots up-front so subsequent frameworks benefit from the
+  // fresh observation in later ticks.
   const snapshots: SnapshotInsert[] = []
   for (const row of universe) {
     const m = markets.get(row.symbol)
@@ -589,11 +1374,26 @@ async function runScan(): Promise<{
   }
   await writeSnapshots(snapshots)
 
+  // Config and baselines. Thresholds fail the whole scan if missing
+  // (frameworks cannot run without their tuning); narrative and BTC
+  // baseline degrade to empty/zero so the rest of the scan still works.
+  const [thresholds, narrativeHeatMap, btcReturn24h] = await Promise.all([
+    loadThresholds(),
+    requirements.needsNarrativeHeat
+      ? loadNarrativeHeat()
+      : Promise.resolve(new Map<string, NarrativeHeat>()),
+    requirements.needsBtcReturn24h ? loadBtcReturn24h() : Promise.resolve(0),
+  ])
+
+  // Rolling history load (one round-trip for all symbols).
   const history =
     requirements.needsOiHistory || requirements.needsFundingHistory
       ? await loadHistory(symbols)
       : new Map<string, { funding: number[]; oi: number[] }>()
 
+  // Per-pair work: fetch any candles frameworks need, evaluate each
+  // framework, and emit alerts. Wrapped in a try/catch per pair so one
+  // bad row doesn't kill the whole scan.
   type EvalTask = UniverseRow & { market: MarketData }
   const tasks: EvalTask[] = universe.flatMap((u) => {
     const market = markets.get(u.symbol)
@@ -601,8 +1401,21 @@ async function runScan(): Promise<{
   })
 
   let triggered = 0
+  let truncated = false
+  let softBudgetLogged = false
 
   await pMap(tasks, CONCURRENCY, async (task) => {
+    const elapsed = Date.now() - started
+    if (elapsed > HARD_BUDGET_MS) {
+      truncated = true
+      return
+    }
+    if (elapsed > SOFT_BUDGET_MS && !softBudgetLogged) {
+      console.warn(
+        `[scanner] soft time budget exceeded at ${elapsed}ms, continuing`,
+      )
+      softBudgetLogged = true
+    }
     try {
       let candles1h: Candle[] | undefined
       let candles4h: Candle[] | undefined
@@ -613,6 +1426,7 @@ async function runScan(): Promise<{
         candles4h = await getCandles(task.symbol, '4h', 100)
       }
       const bucket = history.get(task.symbol)
+      const heat = narrativeHeatMap.get(task.symbol) ?? 'cool'
       const snapshot: MarketSnapshot = {
         symbol: task.symbol,
         markPrice: task.market.markPrice,
@@ -623,12 +1437,15 @@ async function runScan(): Promise<{
         candles4h,
         fundingHistory: bucket?.funding ?? [],
         oiHistory: bucket?.oi ?? [],
+        narrativeHeat: heat,
+        btcReturn24h,
       }
 
       for (const framework of FRAMEWORKS.values()) {
+        const frameworkThresholds = thresholds.get(framework.id) ?? {}
         let result
         try {
-          result = framework.evaluate(snapshot)
+          result = framework.evaluate(snapshot, frameworkThresholds)
         } catch (error) {
           console.error(
             `[scanner] ${framework.id} threw for ${task.symbol}:`,
@@ -686,6 +1503,7 @@ async function runScan(): Promise<{
     scanned: tasks.length,
     triggered,
     durationMs: Date.now() - started,
+    truncated,
   }
 }
 
@@ -693,7 +1511,7 @@ Deno.serve(async () => {
   try {
     const summary = await runScan()
     console.log(
-      `[scanner] scanned=${summary.scanned} triggered=${summary.triggered} durationMs=${summary.durationMs}`,
+      `[scanner] scanned=${summary.scanned} triggered=${summary.triggered} durationMs=${summary.durationMs}${summary.truncated ? ' truncated=1' : ''}`,
     )
     return new Response(JSON.stringify({ ok: true, ...summary }), {
       status: 200,
@@ -708,3 +1526,4 @@ Deno.serve(async () => {
     })
   }
 })
+
