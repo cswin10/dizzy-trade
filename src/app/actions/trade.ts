@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 
+import { getBtcContextAtNow } from '@/lib/hyperliquid'
 import { evaluateRules, type RulesContext } from '@/lib/rules'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -206,6 +207,11 @@ export async function logTradeAction(
     outcome = outcomeForPnl(pnl)
   }
 
+  // Capture BTC trend at log time for the per-context analytics chart.
+  // The fetcher has its own 3s timeout and returns null on any error,
+  // so a Hyperliquid hiccup never blocks the trade from being saved.
+  const btcContext = await getBtcContextAtNow()
+
   const { data: inserted, error } = await supabase
     .from('trades')
     .insert({
@@ -230,6 +236,7 @@ export async function logTradeAction(
       pnl,
       outcome,
       source: 'manual',
+      btc_context_at_entry: btcContext,
     })
     .select('id')
     .single()

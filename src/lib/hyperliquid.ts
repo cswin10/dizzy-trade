@@ -133,3 +133,42 @@ export async function getCandles(
     v: toNumber(c.v),
   }))
 }
+
+export type BtcTrendContext = 'up' | 'down' | 'ranging'
+
+const BTC_CONTEXT_LOOKBACK = 50
+const BTC_CONTEXT_SMA_WINDOW = 20
+const BTC_CONTEXT_BAND_PCT = 0.003 // 0.3% drift band around the SMA
+const BTC_CONTEXT_TIMEOUT_MS = 3_000
+
+/**
+ * Classifies BTC's recent price action into 'up', 'down', or 'ranging'
+ * by comparing the latest 1h close to the SMA of the last 20 closes.
+ * Returns null when the network call times out, errors, or the data
+ * is too sparse. Designed to be called from `logTradeAction`; the
+ * trade insert must always succeed even if this fails.
+ */
+export async function getBtcContextAtNow(): Promise<BtcTrendContext | null> {
+  const fetchPromise = (async () => {
+    const candles = await getCandles('BTC', '1h', BTC_CONTEXT_LOOKBACK)
+    if (candles.length < BTC_CONTEXT_SMA_WINDOW + 1) return null
+    const recent = candles.slice(-BTC_CONTEXT_SMA_WINDOW)
+    const sma =
+      recent.reduce((acc, candle) => acc + candle.c, 0) / recent.length
+    if (!Number.isFinite(sma) || sma <= 0) return null
+    const latest = candles[candles.length - 1]!.c
+    if (latest > sma * (1 + BTC_CONTEXT_BAND_PCT)) return 'up'
+    if (latest < sma * (1 - BTC_CONTEXT_BAND_PCT)) return 'down'
+    return 'ranging'
+  })()
+  const timeoutPromise = new Promise<null>((resolve) => {
+    setTimeout(() => resolve(null), BTC_CONTEXT_TIMEOUT_MS)
+  })
+  try {
+    return await Promise.race([fetchPromise, timeoutPromise])
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(`[btc context] failed: ${message}`)
+    return null
+  }
+}
