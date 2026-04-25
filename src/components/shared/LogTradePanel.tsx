@@ -336,7 +336,7 @@ function CreateTradeForm({
       {prefill?.alert_id ? (
         <input type="hidden" name="alert_id" value={prefill.alert_id} />
       ) : null}
-      <div className="flex-1 space-y-7 overflow-y-auto px-6 py-5">
+      <div className="flex-1 space-y-7 overflow-y-auto px-4 py-5 sm:px-6">
         {prefill?.alert_id ? (
           <div className="rounded-md border border-accent/30 bg-accent/10 px-3 py-2 text-xs text-accent">
             Pre-filled from alert. Review, adjust, and log when ready.
@@ -513,7 +513,7 @@ function CreateTradeForm({
         ) : null}
       </div>
 
-      <footer className="flex items-center justify-end gap-3 border-t border-white/[0.06] bg-surface px-6 py-4">
+      <footer className="flex items-center justify-end gap-3 border-t border-white/[0.06] bg-surface px-4 py-4 sm:px-6">
         <Button
           type="button"
           variant="ghost"
@@ -554,7 +554,7 @@ function CloseTradeForm({
   return (
     <form action={formAction} className="flex flex-1 flex-col overflow-hidden">
       <input type="hidden" name="trade_id" value={prefill.trade_id} />
-      <div className="flex-1 space-y-6 overflow-y-auto px-6 py-5">
+      <div className="flex-1 space-y-6 overflow-y-auto px-4 py-5 sm:px-6">
         <div className="rounded-md border border-white/[0.06] bg-surface-2 px-4 py-3">
           <div className="flex items-center justify-between text-sm">
             <span className="font-medium text-white">
@@ -619,7 +619,7 @@ function CloseTradeForm({
         ) : null}
       </div>
 
-      <footer className="flex items-center justify-end gap-3 border-t border-white/[0.06] bg-surface px-6 py-4">
+      <footer className="flex items-center justify-end gap-3 border-t border-white/[0.06] bg-surface px-4 py-4 sm:px-6">
         <Button
           type="button"
           variant="ghost"
@@ -659,7 +659,7 @@ export function LogTradePanel({
         onClick={onClose}
       />
       <div className="absolute right-0 top-0 flex h-screen w-full flex-col border-l border-white/[0.06] bg-surface sm:w-[480px]">
-        <header className="flex items-start justify-between gap-4 border-b border-white/[0.06] px-6 py-5">
+        <header className="flex items-start justify-between gap-4 border-b border-white/[0.06] px-4 py-4 sm:px-6 sm:py-5">
           <div>
             <h2 className="text-base font-medium tracking-tight text-white">
               {mode === 'close' ? 'Close trade' : 'Log trade'}

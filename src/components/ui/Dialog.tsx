@@ -51,7 +51,7 @@ export function Dialog({
       role="dialog"
       aria-modal="true"
       aria-label={title}
-      className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+      className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4"
     >
       <button
         type="button"
@@ -61,7 +61,7 @@ export function Dialog({
       />
       <div
         className={twMerge(
-          'relative w-full max-w-md rounded-lg border border-white/[0.06] bg-surface bg-panel-lit p-6 shadow-xl',
+          'relative max-h-[calc(100vh-1.5rem)] w-full max-w-md overflow-y-auto rounded-lg border border-white/[0.06] bg-surface bg-panel-lit p-4 shadow-xl sm:max-h-[calc(100vh-2rem)] sm:p-6',
           className,
         )}
       >

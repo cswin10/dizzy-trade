@@ -163,7 +163,7 @@ export default async function DashboardPage() {
             <div className="flex items-center">
               <span
                 className={twMerge(
-                  'text-6xl font-medium leading-none tracking-tight',
+                  'text-4xl font-medium leading-none tracking-tight sm:text-5xl lg:text-6xl',
                   pnlValueClass(pnl24h),
                 )}
               >

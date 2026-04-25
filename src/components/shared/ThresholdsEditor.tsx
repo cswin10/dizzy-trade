@@ -104,7 +104,7 @@ export function ThresholdsEditor({ initialThresholds }: ThresholdsEditorProps) {
           title={FRAMEWORK_TITLES[frameworkId] ?? frameworkId}
         >
           <div className="overflow-hidden rounded-md border border-white/[0.04]">
-            <table className="w-full border-collapse text-sm">
+            <table className="hidden w-full border-collapse text-sm md:table">
               <thead>
                 <tr className="border-b border-white/[0.04] text-left text-[11px] font-medium uppercase tracking-wider text-white/45">
                   <th className="px-3 py-2">Description</th>
@@ -124,6 +124,16 @@ export function ThresholdsEditor({ initialThresholds }: ThresholdsEditorProps) {
                 ))}
               </tbody>
             </table>
+            <div className="flex flex-col divide-y divide-white/[0.04] md:hidden">
+              {group.map((row) => (
+                <ThresholdCardEditor
+                  key={row.id}
+                  row={row}
+                  onOptimisticUpdate={applyUpdate}
+                  onRevert={revertUpdate}
+                />
+              ))}
+            </div>
           </div>
           <p className="mt-3 text-xs text-white/35">
             Changes apply on next scan (within 60 seconds).
@@ -242,5 +252,106 @@ function ThresholdRowEditor({
         {relativeUpdated(row.updated_at)}
       </td>
     </tr>
+  )
+}
+
+function ThresholdCardEditor({
+  row,
+  onOptimisticUpdate,
+  onRevert,
+}: ThresholdRowEditorProps) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(String(row.value))
+  const [error, setError] = useState<string | null>(null)
+  const [pending, startTransition] = useTransition()
+
+  const startEdit = () => {
+    setDraft(String(row.value))
+    setError(null)
+    setEditing(true)
+  }
+
+  const cancel = () => {
+    setEditing(false)
+    setError(null)
+  }
+
+  const commit = () => {
+    const trimmed = draft.trim()
+    if (trimmed.length === 0) {
+      cancel()
+      return
+    }
+    const parsed = Number(trimmed)
+    if (!Number.isFinite(parsed)) {
+      setError('Not a number')
+      return
+    }
+    if (parsed === row.value) {
+      cancel()
+      return
+    }
+    const original = row
+    setEditing(false)
+    setError(null)
+    onOptimisticUpdate(row.id, parsed)
+    startTransition(async () => {
+      const result = await updateThresholdAction(
+        row.framework_id,
+        row.key,
+        parsed,
+      )
+      if (!result.ok) {
+        onRevert(original)
+        setError(result.message ?? 'Update failed')
+      }
+    })
+  }
+
+  return (
+    <div className="flex flex-col gap-2 p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-col">
+          <span className="text-sm text-white/85">{row.description ?? ''}</span>
+          <span className="font-mono text-[11px] text-white/40">{row.key}</span>
+        </div>
+        {editing ? (
+          <input
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                commit()
+              } else if (e.key === 'Escape') {
+                e.preventDefault()
+                cancel()
+              }
+            }}
+            className="w-28 shrink-0 rounded border border-accent/40 bg-surface-2 px-2 py-1.5 text-right font-mono text-sm tabular-nums text-white outline-none focus:border-accent"
+            inputMode="decimal"
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={startEdit}
+            className={twMerge(
+              'shrink-0 rounded px-2 py-1 font-mono text-sm tabular-nums transition-colors duration-150',
+              pending
+                ? 'text-white/40'
+                : 'text-white hover:bg-surface-2 hover:text-white',
+            )}
+          >
+            {formatValue(row.value)}
+          </button>
+        )}
+      </div>
+      <div className="flex items-center justify-between gap-3 text-xs text-white/40">
+        <span>{relativeUpdated(row.updated_at)}</span>
+        {error ? <span className="text-negative">{error}</span> : null}
+      </div>
+    </div>
   )
 }
