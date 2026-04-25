@@ -1,19 +1,23 @@
 // Scanner Edge Function.
 //
 // Runs every minute via pg_cron. On each tick:
-//   1. load the active universe
-//   2. bulk-fetch current market data from Hyperliquid
-//   3. write one market_snapshots row per pair (rolling history)
-//   4. load framework thresholds and narrative tags from the database
-//   5. fetch BTC 4h candles once for the outperformance baseline
-//   6. fetch any additional per-pair data the frameworks need, with
-//      bounded concurrency so we don't blow rate limits
-//   7. evaluate every framework against every pair using per-framework
-//      thresholds; emit alerts for triggers
+//   1. load the active universe and bulk-fetch market data
+//   2. write one market_snapshots row per universe pair (rolling
+//      history for OI and funding, used by frameworks that ask for it)
+//   3. load active strategies plus the global config (thresholds,
+//      narrative tags, BTC reference return)
+//   4. for each strategy, evaluate its framework against each of its
+//      configured pair_symbols on the strategy's chosen timeframe
+//   5. insert alerts (tagged with strategy_id) and fire Telegram
+//      notifications for watchlist symbols
 //
 // Errors on a single pair are logged and swallowed so the rest of the
-// scan still runs. A soft 45s and hard 55s time budget caps the per-tick
-// work so cron doesn't pile up if Hyperliquid is slow.
+// scan still runs. A soft 45s and hard 55s time budget caps the
+// per-tick work so cron doesn't pile up if Hyperliquid is slow.
+//
+// market_snapshots writes cover the full universe even though only
+// strategy pairs are evaluated. Future strategies that change their
+// pair list need historical OI/funding to be useful from day one.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.46.1'
 
@@ -26,8 +30,6 @@ import {
 import { sendTelegramAlert } from '../_shared/telegram.ts'
 import { FRAMEWORKS } from '../_shared/frameworks/index.ts'
 import type {
-  DataRequirements,
-  Framework,
   MarketSnapshot,
   NarrativeHeat,
 } from '../_shared/frameworks/types.ts'
@@ -36,8 +38,11 @@ const CONCURRENCY = 5
 const HISTORY_WINDOW_MINUTES = 60 * 24 // 24 hours
 const SOFT_BUDGET_MS = 45_000
 const HARD_BUDGET_MS = 55_000
+const CANDLE_LOOKBACK = 60
 const APP_URL =
   Deno.env.get('DIZZY_TRADE_APP_URL') ?? 'https://dizzy-trade.vercel.app'
+
+type Timeframe = '15m' | '1h' | '4h' | '1d'
 
 type UniverseRow = {
   symbol: string
@@ -45,36 +50,13 @@ type UniverseRow = {
   is_watchlist: boolean
 }
 
-type AggregatedRequirements = {
-  needsCandles1h: boolean
-  needsCandles4h: boolean
-  needsOiHistory: boolean
-  needsFundingHistory: boolean
-  needsNarrativeHeat: boolean
-  needsBtcReturn24h: boolean
-}
-
-function aggregateRequirements(
-  frameworks: Framework[],
-): AggregatedRequirements {
-  const out: AggregatedRequirements = {
-    needsCandles1h: false,
-    needsCandles4h: false,
-    needsOiHistory: false,
-    needsFundingHistory: false,
-    needsNarrativeHeat: false,
-    needsBtcReturn24h: false,
-  }
-  for (const f of frameworks) {
-    const r: DataRequirements = f.dataRequirements
-    if (r.needsCandles1h) out.needsCandles1h = true
-    if (r.needsCandles4h) out.needsCandles4h = true
-    if (r.needsOiHistory) out.needsOiHistory = true
-    if (r.needsFundingHistory) out.needsFundingHistory = true
-    if (r.needsNarrativeHeat) out.needsNarrativeHeat = true
-    if (r.needsBtcReturn24h) out.needsBtcReturn24h = true
-  }
-  return out
+type StrategyRow = {
+  id: string
+  name: string
+  framework_id: string
+  timeframe: Timeframe
+  pair_symbols: string[]
+  is_active: boolean
 }
 
 // Simple concurrency pool: run `fn` over every item, but never more than
@@ -125,9 +107,21 @@ async function loadUniverse(): Promise<UniverseRow[]> {
   return (data ?? []) as UniverseRow[]
 }
 
-// Nested map: framework_id -> key -> value. Frameworks that have no row
-// in the table get an empty inner map and will error on missing keys,
-// which surfaces quickly in logs without silently misfiring.
+async function loadActiveStrategies(): Promise<StrategyRow[]> {
+  const client = supabase()
+  const { data, error } = await client
+    .from('strategies')
+    .select('id, name, framework_id, timeframe, pair_symbols, is_active')
+    .eq('is_active', true)
+  if (error) {
+    throw new Error(`strategies load failed: ${error.message}`)
+  }
+  return (data ?? []) as StrategyRow[]
+}
+
+// Nested map: framework_id -> key -> value. Frameworks that have no
+// row in the table get an empty inner map and will error on missing
+// keys, which surfaces quickly in logs without silently misfiring.
 async function loadThresholds(): Promise<Map<string, Record<string, number>>> {
   const client = supabase()
   const { data, error } = await client
@@ -162,15 +156,16 @@ async function loadNarrativeHeat(): Promise<Map<string, NarrativeHeat>> {
   return out
 }
 
-// Price return over the last 24h using 4h candles. 6 bars back gives
-// the close 24h ago. Returns 0 if the data isn't there so downstream
-// conditions degrade gracefully rather than triggering.
+// 24h BTC return computed from 1h candles (24 bars back). Frameworks
+// that need a BTC outperformance baseline read this off the snapshot.
+// Returns 0 when the data isn't available so downstream conditions
+// degrade gracefully rather than crashing the scan.
 async function loadBtcReturn24h(): Promise<number> {
   try {
-    const candles = await getCandles('BTC', '4h', 10)
-    if (candles.length < 7) return 0
+    const candles = await getCandles('BTC', '1h', 30)
+    if (candles.length < 25) return 0
     const latest = candles[candles.length - 1]!.c
-    const ref = candles[candles.length - 7]!.c
+    const ref = candles[candles.length - 25]!.c
     if (ref <= 0) return 0
     return (latest - ref) / ref
   } catch (error) {
@@ -228,6 +223,7 @@ async function loadHistory(
 }
 
 type AlertInsert = {
+  strategy_id: string
   framework_id: string
   symbol: string
   coingecko_id: string | null
@@ -262,23 +258,166 @@ async function markNotified(alertId: string): Promise<void> {
     .eq('id', alertId)
 }
 
+type StrategySummary = {
+  name: string
+  scanned: number
+  triggered: number
+}
+
+async function evaluateStrategy(args: {
+  strategy: StrategyRow
+  markets: Map<string, MarketData>
+  universeBySymbol: Map<string, UniverseRow>
+  thresholds: Map<string, Record<string, number>>
+  history: Map<string, { funding: number[]; oi: number[] }>
+  narrativeHeat: Map<string, NarrativeHeat>
+  btcReturn24h: number
+  scanStartedAt: number
+  budgetState: { softLogged: boolean; truncated: boolean }
+}): Promise<StrategySummary> {
+  const {
+    strategy,
+    markets,
+    universeBySymbol,
+    thresholds,
+    history,
+    narrativeHeat,
+    btcReturn24h,
+    scanStartedAt,
+    budgetState,
+  } = args
+
+  const summary: StrategySummary = {
+    name: strategy.name,
+    scanned: 0,
+    triggered: 0,
+  }
+
+  const framework = FRAMEWORKS.get(strategy.framework_id)
+  if (!framework) {
+    console.warn(
+      `[scanner] strategy=${strategy.name} references unknown framework_id=${strategy.framework_id}, skipping`,
+    )
+    return summary
+  }
+
+  const frameworkThresholds = thresholds.get(strategy.framework_id) ?? {}
+
+  await pMap(strategy.pair_symbols, CONCURRENCY, async (symbol) => {
+    const elapsed = Date.now() - scanStartedAt
+    if (elapsed > HARD_BUDGET_MS) {
+      budgetState.truncated = true
+      return
+    }
+    if (elapsed > SOFT_BUDGET_MS && !budgetState.softLogged) {
+      console.warn(
+        `[scanner] soft time budget exceeded at ${elapsed}ms, continuing`,
+      )
+      budgetState.softLogged = true
+    }
+
+    const meta = markets.get(symbol)
+    if (!meta) return
+    summary.scanned++
+
+    let candles: Candle[] = []
+    try {
+      candles = await getCandles(symbol, strategy.timeframe, CANDLE_LOOKBACK)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.warn(`[scanner] ${symbol} candle fetch failed: ${message}`)
+      return
+    }
+
+    const bucket = history.get(symbol)
+    const universeRow = universeBySymbol.get(symbol)
+    const snapshot: MarketSnapshot = {
+      symbol,
+      markPrice: meta.markPrice,
+      funding: meta.funding,
+      openInterest: meta.openInterest,
+      dayNotionalVolume: meta.dayNotionalVolume,
+      candles,
+      fundingHistory: bucket?.funding ?? [],
+      oiHistory: bucket?.oi ?? [],
+      narrativeHeat: narrativeHeat.get(symbol) ?? 'cool',
+      btcReturn24h,
+    }
+
+    let result
+    try {
+      result = framework.evaluate(snapshot, frameworkThresholds)
+    } catch (error) {
+      console.error(
+        `[scanner] strategy=${strategy.name} framework=${framework.id} threw for ${symbol}:`,
+        error,
+      )
+      return
+    }
+    if (!result.triggered) return
+
+    summary.triggered++
+    const isWatchlist = universeRow?.is_watchlist ?? true
+    const alertId = await insertAlert({
+      strategy_id: strategy.id,
+      framework_id: framework.id,
+      symbol,
+      coingecko_id: universeRow?.coingecko_id ?? null,
+      condition_values: result.conditionValues,
+      suggested_direction: result.suggestedDirection ?? null,
+      suggested_entry: result.suggestedEntry ?? null,
+      suggested_stop: result.suggestedStop ?? null,
+      suggested_target: result.suggestedTarget ?? null,
+      is_watchlist: isWatchlist,
+      notified_telegram: false,
+    })
+    if (!alertId) return
+
+    if (
+      isWatchlist &&
+      result.suggestedDirection &&
+      result.suggestedEntry != null &&
+      result.suggestedStop != null &&
+      result.suggestedTarget != null
+    ) {
+      const oiDeltaPct = Number(
+        (result.conditionValues.oiDeltaPct as number | undefined) ?? 0,
+      )
+      const ok = await sendTelegramAlert({
+        framework_name: framework.name,
+        symbol,
+        direction: result.suggestedDirection,
+        entry: result.suggestedEntry,
+        stop: result.suggestedStop,
+        target: result.suggestedTarget,
+        funding: meta.funding,
+        oiDeltaPct,
+        appUrl: `${APP_URL}/alerts`,
+      })
+      if (ok) await markNotified(alertId)
+    }
+  })
+
+  return summary
+}
+
 async function runScan(): Promise<{
   scanned: number
   triggered: number
   durationMs: number
   truncated: boolean
+  strategies: StrategySummary[]
 }> {
   const started = Date.now()
 
   const universe = await loadUniverse()
-  const symbols = universe.map((u) => u.symbol)
-  const requirements = aggregateRequirements(Array.from(FRAMEWORKS.values()))
+  const universeBySymbol = new Map(universe.map((u) => [u.symbol, u]))
 
   // Bulk market data: single request covers every Hyperliquid perp.
   const markets: Map<string, MarketData> = await getAllMarketData()
 
-  // Write snapshots up-front so subsequent frameworks benefit from the
-  // fresh observation in later ticks.
+  // market_snapshots covers the full universe so future strategies
+  // have rolling OI/funding history available from day one.
   const snapshots: SnapshotInsert[] = []
   for (const row of universe) {
     const m = markets.get(row.symbol)
@@ -293,136 +432,65 @@ async function runScan(): Promise<{
   }
   await writeSnapshots(snapshots)
 
-  // Config and baselines. Thresholds fail the whole scan if missing
-  // (frameworks cannot run without their tuning); narrative and BTC
-  // baseline degrade to empty/zero so the rest of the scan still works.
-  const [thresholds, narrativeHeatMap, btcReturn24h] = await Promise.all([
+  const strategies = await loadActiveStrategies()
+  if (strategies.length === 0) {
+    console.warn('[scanner] no active strategies, nothing to evaluate')
+    return {
+      scanned: 0,
+      triggered: 0,
+      durationMs: Date.now() - started,
+      truncated: false,
+      strategies: [],
+    }
+  }
+
+  // Union of pair symbols across all active strategies. History and
+  // narrative heat get loaded once for this set rather than per
+  // strategy.
+  const strategyPairs = new Set<string>()
+  for (const s of strategies) {
+    for (const sym of s.pair_symbols) strategyPairs.add(sym)
+  }
+
+  const [thresholds, narrativeHeat, btcReturn24h, history] = await Promise.all([
     loadThresholds(),
-    requirements.needsNarrativeHeat
-      ? loadNarrativeHeat()
-      : Promise.resolve(new Map<string, NarrativeHeat>()),
-    requirements.needsBtcReturn24h ? loadBtcReturn24h() : Promise.resolve(0),
+    loadNarrativeHeat(),
+    loadBtcReturn24h(),
+    loadHistory([...strategyPairs]),
   ])
 
-  // Rolling history load (one round-trip for all symbols).
-  const history =
-    requirements.needsOiHistory || requirements.needsFundingHistory
-      ? await loadHistory(symbols)
-      : new Map<string, { funding: number[]; oi: number[] }>()
+  const budgetState = { softLogged: false, truncated: false }
+  const summaries: StrategySummary[] = []
+  let totalScanned = 0
+  let totalTriggered = 0
 
-  // Per-pair work: fetch any candles frameworks need, evaluate each
-  // framework, and emit alerts. Wrapped in a try/catch per pair so one
-  // bad row doesn't kill the whole scan.
-  type EvalTask = UniverseRow & { market: MarketData }
-  const tasks: EvalTask[] = universe.flatMap((u) => {
-    const market = markets.get(u.symbol)
-    return market ? [{ ...u, market }] : []
-  })
-
-  let triggered = 0
-  let truncated = false
-  let softBudgetLogged = false
-
-  await pMap(tasks, CONCURRENCY, async (task) => {
-    const elapsed = Date.now() - started
-    if (elapsed > HARD_BUDGET_MS) {
-      truncated = true
-      return
-    }
-    if (elapsed > SOFT_BUDGET_MS && !softBudgetLogged) {
-      console.warn(
-        `[scanner] soft time budget exceeded at ${elapsed}ms, continuing`,
-      )
-      softBudgetLogged = true
-    }
-    try {
-      let candles1h: Candle[] | undefined
-      let candles4h: Candle[] | undefined
-      if (requirements.needsCandles1h) {
-        candles1h = await getCandles(task.symbol, '1h', 100)
-      }
-      if (requirements.needsCandles4h) {
-        candles4h = await getCandles(task.symbol, '4h', 100)
-      }
-      const bucket = history.get(task.symbol)
-      const heat = narrativeHeatMap.get(task.symbol) ?? 'cool'
-      const snapshot: MarketSnapshot = {
-        symbol: task.symbol,
-        markPrice: task.market.markPrice,
-        funding: task.market.funding,
-        openInterest: task.market.openInterest,
-        dayNotionalVolume: task.market.dayNotionalVolume,
-        candles1h,
-        candles4h,
-        fundingHistory: bucket?.funding ?? [],
-        oiHistory: bucket?.oi ?? [],
-        narrativeHeat: heat,
-        btcReturn24h,
-      }
-
-      for (const framework of FRAMEWORKS.values()) {
-        const frameworkThresholds = thresholds.get(framework.id) ?? {}
-        let result
-        try {
-          result = framework.evaluate(snapshot, frameworkThresholds)
-        } catch (error) {
-          console.error(
-            `[scanner] ${framework.id} threw for ${task.symbol}:`,
-            error,
-          )
-          continue
-        }
-        if (!result.triggered) continue
-
-        triggered++
-        const alertId = await insertAlert({
-          framework_id: framework.id,
-          symbol: task.symbol,
-          coingecko_id: task.coingecko_id,
-          condition_values: result.conditionValues,
-          suggested_direction: result.suggestedDirection ?? null,
-          suggested_entry: result.suggestedEntry ?? null,
-          suggested_stop: result.suggestedStop ?? null,
-          suggested_target: result.suggestedTarget ?? null,
-          is_watchlist: task.is_watchlist,
-          notified_telegram: false,
-        })
-        if (!alertId) continue
-
-        if (
-          task.is_watchlist &&
-          result.suggestedDirection &&
-          result.suggestedEntry != null &&
-          result.suggestedStop != null &&
-          result.suggestedTarget != null
-        ) {
-          const oiDeltaPct = Number(
-            (result.conditionValues.oiDeltaPct as number | undefined) ?? 0,
-          )
-          const ok = await sendTelegramAlert({
-            framework_name: framework.name,
-            symbol: task.symbol,
-            direction: result.suggestedDirection,
-            entry: result.suggestedEntry,
-            stop: result.suggestedStop,
-            target: result.suggestedTarget,
-            funding: task.market.funding,
-            oiDeltaPct,
-            appUrl: `${APP_URL}/alerts`,
-          })
-          if (ok) await markNotified(alertId)
-        }
-      }
-    } catch (error) {
-      console.error(`[scanner] pair ${task.symbol} failed:`, error)
-    }
-  })
+  for (const strategy of strategies) {
+    const summary = await evaluateStrategy({
+      strategy,
+      markets,
+      universeBySymbol,
+      thresholds,
+      history,
+      narrativeHeat,
+      btcReturn24h,
+      scanStartedAt: started,
+      budgetState,
+    })
+    summaries.push(summary)
+    totalScanned += summary.scanned
+    totalTriggered += summary.triggered
+    console.log(
+      `[scanner] strategy=${summary.name} scanned=${summary.scanned} triggered=${summary.triggered}`,
+    )
+    if (budgetState.truncated) break
+  }
 
   return {
-    scanned: tasks.length,
-    triggered,
+    scanned: totalScanned,
+    triggered: totalTriggered,
     durationMs: Date.now() - started,
-    truncated,
+    truncated: budgetState.truncated,
+    strategies: summaries,
   }
 }
 
@@ -430,7 +498,7 @@ Deno.serve(async () => {
   try {
     const summary = await runScan()
     console.log(
-      `[scanner] scanned=${summary.scanned} triggered=${summary.triggered} durationMs=${summary.durationMs}${summary.truncated ? ' truncated=1' : ''}`,
+      `[scanner] total scanned=${summary.scanned} triggered=${summary.triggered} durationMs=${summary.durationMs}${summary.truncated ? ' truncated=1' : ''}`,
     )
     return new Response(JSON.stringify({ ok: true, ...summary }), {
       status: 200,

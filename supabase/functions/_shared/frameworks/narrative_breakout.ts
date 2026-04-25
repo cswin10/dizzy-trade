@@ -29,7 +29,7 @@ export const narrativeBreakoutFramework: Framework = {
   description:
     'Hot narrative symbol breaking a 20-candle 4h range on volume with BTC outperformance.',
   dataRequirements: {
-    needsCandles4h: true,
+    needsCandles: true,
     needsNarrativeHeat: true,
     needsBtcReturn24h: true,
   },
@@ -58,7 +58,7 @@ export const narrativeBreakoutFramework: Framework = {
     // Condition 2a: breakout above the high of the previous `lookback`
     // candles. Needs lookback + 1 candles so we can separate "previous"
     // from the current closed candle.
-    const candles = snapshot.candles4h ?? []
+    const candles = snapshot.candles ?? []
     if (candles.length < lookback + 1) {
       conditionValues.candleCount = candles.length
       return { triggered: false, conditionValues }

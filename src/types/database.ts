@@ -280,6 +280,54 @@ export type Database = {
         }
         Relationships: []
       }
+      strategies: {
+        Row: {
+          id: string
+          name: string
+          framework_id: string
+          timeframe: '15m' | '1h' | '4h' | '1d'
+          pair_symbols: string[]
+          risk_amount_gbp: number
+          min_rr: number
+          max_concurrent_positions: number
+          max_daily_loss_gbp: number | null
+          max_consecutive_losers: number | null
+          is_active: boolean
+          created_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          id?: string
+          name: string
+          framework_id: string
+          timeframe: '15m' | '1h' | '4h' | '1d'
+          pair_symbols: string[]
+          risk_amount_gbp: number
+          min_rr?: number
+          max_concurrent_positions?: number
+          max_daily_loss_gbp?: number | null
+          max_consecutive_losers?: number | null
+          is_active?: boolean
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          id?: string
+          name?: string
+          framework_id?: string
+          timeframe?: '15m' | '1h' | '4h' | '1d'
+          pair_symbols?: string[]
+          risk_amount_gbp?: number
+          min_rr?: number
+          max_concurrent_positions?: number
+          max_daily_loss_gbp?: number | null
+          max_consecutive_losers?: number | null
+          is_active?: boolean
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       narrative_tags: {
         Row: {
           id: string
@@ -322,6 +370,7 @@ export type Database = {
           dismissed: boolean
           dismissed_at: string | null
           notified_telegram: boolean
+          strategy_id: string | null
         }
         Insert: {
           id?: string
@@ -340,6 +389,7 @@ export type Database = {
           dismissed?: boolean
           dismissed_at?: string | null
           notified_telegram?: boolean
+          strategy_id?: string | null
         }
         Update: {
           id?: string
@@ -358,6 +408,7 @@ export type Database = {
           dismissed?: boolean
           dismissed_at?: string | null
           notified_telegram?: boolean
+          strategy_id?: string | null
         }
         Relationships: []
       }

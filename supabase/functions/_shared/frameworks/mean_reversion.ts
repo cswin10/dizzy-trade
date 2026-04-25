@@ -61,7 +61,7 @@ export const meanReversionFramework: Framework = {
   description:
     'Rejection at a prior 4h swing level or round number with RSI divergence and stretched funding.',
   dataRequirements: {
-    needsCandles4h: true,
+    needsCandles: true,
   },
   evaluate(
     snapshot: MarketSnapshot,
@@ -83,7 +83,7 @@ export const meanReversionFramework: Framework = {
       funding: snapshot.funding,
     }
 
-    const candles = snapshot.candles4h ?? []
+    const candles = snapshot.candles ?? []
     const minNeeded = Math.max(
       rsiPeriod + 2,
       rsiLookback + 1,
