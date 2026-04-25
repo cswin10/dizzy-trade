@@ -2,14 +2,17 @@ import type { Candle } from '../hyperliquid.ts'
 
 export type NarrativeHeat = 'hot' | 'warm' | 'cool' | 'cold'
 
+// Frameworks are timeframe-agnostic. The scanner fetches candles for
+// the active strategy's timeframe and passes them through `candles`;
+// it is up to the framework to decide how many bars it needs and how
+// to interpret them.
 export type MarketSnapshot = {
   symbol: string
   markPrice: number
   funding: number
   openInterest: number
   dayNotionalVolume: number
-  candles1h?: Candle[]
-  candles4h?: Candle[]
+  candles?: Candle[]
   fundingHistory?: number[]
   oiHistory?: number[]
   narrativeHeat?: NarrativeHeat
@@ -26,8 +29,7 @@ export type FrameworkResult = {
 }
 
 export type DataRequirements = {
-  needsCandles1h?: boolean
-  needsCandles4h?: boolean
+  needsCandles?: boolean
   needsFundingHistory?: boolean
   needsOiHistory?: boolean
   needsNarrativeHeat?: boolean

@@ -23,7 +23,7 @@ export const liquidationHuntFramework: Framework = {
   description:
     'Extreme funding plus elevated open interest plus a rejected wick opposite to the funding bias.',
   dataRequirements: {
-    needsCandles1h: true,
+    needsCandles: true,
     needsFundingHistory: false,
     needsOiHistory: true,
   },
@@ -70,9 +70,10 @@ export const liquidationHuntFramework: Framework = {
       return { triggered: false, conditionValues }
     }
 
-    // Condition 3 and 4: the most recent 1h candle must have a wick
-    // opposite to the funding bias and close back inside the range.
-    const candles = snapshot.candles1h ?? []
+    // Condition 3 and 4: the most recent candle (whatever timeframe
+    // the strategy chose) must have a wick opposite to the funding
+    // bias and close back inside the range.
+    const candles = snapshot.candles ?? []
     if (candles.length === 0) {
       conditionValues.candleAvailable = false
       return { triggered: false, conditionValues }
