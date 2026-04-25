@@ -1,5 +1,5 @@
 // AUTO-GENERATED. Do not edit. Run `npm run bundle:scanner` to regenerate.
-// Generated: 2026-04-25T11:54:42.374Z
+// Generated: 2026-04-25T20:22:48.654Z
 //
 // Source files (in dependency order):
 //   supabase/functions/_shared/hyperliquid.ts
@@ -2520,9 +2520,7 @@ async function runScan(): Promise<{
       )
     }
   } else {
-    console.warn(
-      '[scanner] skipping Hyperliquid sync, scan budget exhausted',
-    )
+    console.warn('[scanner] skipping Hyperliquid sync, scan budget exhausted')
   }
 
   return {
@@ -2627,9 +2625,7 @@ async function detectAndApplyClose(
     fills = await getUserFills(mainAddress, linkedAt)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    console.warn(
-      `[scanner] fills load failed for ${trade.id}: ${message}`,
-    )
+    console.warn(`[scanner] fills load failed for ${trade.id}: ${message}`)
     return false
   }
   const matching = fills
@@ -2698,9 +2694,7 @@ async function syncHyperliquidPositions(args: {
 
   for (const config of configs) {
     if (Date.now() - args.scanStartedAt > 50_000) {
-      console.warn(
-        '[scanner] Hyperliquid sync truncated, resuming next tick',
-      )
+      console.warn('[scanner] Hyperliquid sync truncated, resuming next tick')
       break
     }
     let state

@@ -148,6 +148,14 @@ export type Database = {
           linked_at: string | null
           last_synced_at: string | null
           btc_context_at_entry: 'up' | 'down' | 'ranging' | null
+          analysis_text: string | null
+          analysis_lesson_tag: string | null
+          analysis_what_went_right: string | null
+          analysis_what_went_wrong: string | null
+          analysis_pattern_insight: string | null
+          analysis_generated_at: string | null
+          analysis_model: string | null
+          analysis_prompt_version: number | null
         }
         Insert: {
           id?: string
@@ -187,6 +195,14 @@ export type Database = {
           linked_at?: string | null
           last_synced_at?: string | null
           btc_context_at_entry?: 'up' | 'down' | 'ranging' | null
+          analysis_text?: string | null
+          analysis_lesson_tag?: string | null
+          analysis_what_went_right?: string | null
+          analysis_what_went_wrong?: string | null
+          analysis_pattern_insight?: string | null
+          analysis_generated_at?: string | null
+          analysis_model?: string | null
+          analysis_prompt_version?: number | null
         }
         Update: {
           id?: string
@@ -226,6 +242,14 @@ export type Database = {
           linked_at?: string | null
           last_synced_at?: string | null
           btc_context_at_entry?: 'up' | 'down' | 'ranging' | null
+          analysis_text?: string | null
+          analysis_lesson_tag?: string | null
+          analysis_what_went_right?: string | null
+          analysis_what_went_wrong?: string | null
+          analysis_pattern_insight?: string | null
+          analysis_generated_at?: string | null
+          analysis_model?: string | null
+          analysis_prompt_version?: number | null
         }
         Relationships: []
       }
