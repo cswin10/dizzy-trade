@@ -74,15 +74,39 @@ export default async function DashboardPage() {
     tenantName = tenants?.[0]?.name ?? ''
   }
 
-  // Open positions: distinct venues used as the secondary stat.
+  // Open positions: split LIVE (linked to a Hyperliquid position) and
+  // MANUAL so the operator can see at a glance which trades the
+  // scanner is auto-tracking. Pull each open trade's live status and
+  // its latest position snapshot for the live PnL list below.
   const { data: openTradeRows } = await supabase
     .from('trades')
-    .select('id, venue')
+    .select('id, asset_symbol, direction, live_status')
     .eq('outcome', 'open')
   const openCount = openTradeRows?.length ?? 0
-  const openVenueCount = new Set(
-    (openTradeRows ?? []).map((t) => t.venue).filter(Boolean),
-  ).size
+  const liveTrades = (openTradeRows ?? []).filter(
+    (t) => t.live_status === 'live',
+  )
+  const manualCount = openCount - liveTrades.length
+
+  const liveSnapshots = liveTrades.length
+    ? await Promise.all(
+        liveTrades.map(async (trade) => {
+          const { data: snapshotRows } = await supabase
+            .from('hyperliquid_position_snapshots')
+            .select('unrealized_pnl')
+            .eq('trade_id', trade.id)
+            .order('captured_at', { ascending: false })
+            .limit(1)
+          const unrealized = snapshotRows?.[0]?.unrealized_pnl ?? null
+          return {
+            id: trade.id,
+            symbol: String(trade.asset_symbol),
+            direction: trade.direction as 'long' | 'short',
+            unrealizedPnl: unrealized == null ? null : Number(unrealized),
+          }
+        }),
+      )
+    : []
 
   // 24h realised PnL: trades that closed in the last 24 hours, summing pnl.
   const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
@@ -167,8 +191,41 @@ export default async function DashboardPage() {
               {openCount}
             </span>
             <span className="text-xs text-white/45">
-              Across {openVenueCount} venue{openVenueCount === 1 ? '' : 's'}
+              {liveTrades.length} live · {manualCount} manual
             </span>
+            {liveSnapshots.length > 0 ? (
+              <ul className="mt-2 flex flex-col gap-1 text-xs text-white/65">
+                {liveSnapshots.map((s) => (
+                  <li
+                    key={s.id}
+                    className="flex items-center justify-between gap-2"
+                  >
+                    <span>
+                      {s.symbol} ·{' '}
+                      <span
+                        className={
+                          s.direction === 'long'
+                            ? 'text-positive'
+                            : 'text-negative'
+                        }
+                      >
+                        {s.direction === 'long' ? 'LONG' : 'SHORT'}
+                      </span>
+                    </span>
+                    <span className="font-medium tabular-nums">
+                      {s.unrealizedPnl == null
+                        ? '—'
+                        : `${s.unrealizedPnl >= 0 ? '+' : ''}${s.unrealizedPnl.toFixed(2)}`}{' '}
+                      <span className="text-white/40">live</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-1 text-xs text-white/35">
+                No live positions tracked
+              </p>
+            )}
           </div>
         </Panel>
 

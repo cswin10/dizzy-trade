@@ -136,6 +136,17 @@ export type Database = {
           risk_amount_gbp: number | null
           created_at: string | null
           updated_at: string | null
+          hyperliquid_position_id: string | null
+          hyperliquid_address: string | null
+          live_status:
+            | 'not_live'
+            | 'pending_link'
+            | 'live'
+            | 'closed_auto'
+            | 'closed_manual'
+            | null
+          linked_at: string | null
+          last_synced_at: string | null
         }
         Insert: {
           id?: string
@@ -163,6 +174,17 @@ export type Database = {
           risk_amount_gbp?: number | null
           created_at?: string | null
           updated_at?: string | null
+          hyperliquid_position_id?: string | null
+          hyperliquid_address?: string | null
+          live_status?:
+            | 'not_live'
+            | 'pending_link'
+            | 'live'
+            | 'closed_auto'
+            | 'closed_manual'
+            | null
+          linked_at?: string | null
+          last_synced_at?: string | null
         }
         Update: {
           id?: string
@@ -188,6 +210,80 @@ export type Database = {
           source?: 'manual' | 'hyperliquid' | 'coinbase' | 'onchain'
           external_id?: string | null
           risk_amount_gbp?: number | null
+          created_at?: string | null
+          updated_at?: string | null
+          hyperliquid_position_id?: string | null
+          hyperliquid_address?: string | null
+          live_status?:
+            | 'not_live'
+            | 'pending_link'
+            | 'live'
+            | 'closed_auto'
+            | 'closed_manual'
+            | null
+          linked_at?: string | null
+          last_synced_at?: string | null
+        }
+        Relationships: []
+      }
+      hyperliquid_position_snapshots: {
+        Row: {
+          id: string
+          tenant_id: string
+          trade_id: string
+          coin: string
+          size: number
+          entry_px: number | null
+          position_value: number | null
+          unrealized_pnl: number | null
+          liquidation_px: number | null
+          captured_at: string
+        }
+        Insert: {
+          id?: string
+          tenant_id: string
+          trade_id: string
+          coin: string
+          size: number
+          entry_px?: number | null
+          position_value?: number | null
+          unrealized_pnl?: number | null
+          liquidation_px?: number | null
+          captured_at?: string
+        }
+        Update: {
+          id?: string
+          tenant_id?: string
+          trade_id?: string
+          coin?: string
+          size?: number
+          entry_px?: number | null
+          position_value?: number | null
+          unrealized_pnl?: number | null
+          liquidation_px?: number | null
+          captured_at?: string
+        }
+        Relationships: []
+      }
+      user_hyperliquid_config: {
+        Row: {
+          id: string
+          tenant_id: string
+          main_address: string
+          created_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          id?: string
+          tenant_id: string
+          main_address: string
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          id?: string
+          tenant_id?: string
+          main_address?: string
           created_at?: string | null
           updated_at?: string | null
         }

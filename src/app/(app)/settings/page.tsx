@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 
+import { HyperliquidSettings } from '@/components/shared/HyperliquidSettings'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { PageHeader } from '@/components/shared/PageHeader'
 import {
@@ -34,6 +35,8 @@ export default async function SettingsPage() {
     { data: tags },
     { data: universe },
     { data: strategies },
+    { data: hyperliquidConfig },
+    { data: lastSyncRow },
   ] = await Promise.all([
     supabase
       .from('framework_thresholds')
@@ -54,6 +57,13 @@ export default async function SettingsPage() {
         'id, name, framework_id, timeframe, pair_symbols, risk_amount_gbp, min_rr, max_concurrent_positions, max_daily_loss_gbp, max_consecutive_losers, is_active',
       )
       .order('created_at', { ascending: true }),
+    supabase.from('user_hyperliquid_config').select('main_address').limit(1),
+    supabase
+      .from('trades')
+      .select('last_synced_at')
+      .not('last_synced_at', 'is', null)
+      .order('last_synced_at', { ascending: false })
+      .limit(1),
   ])
 
   const thresholdRows: ThresholdRow[] = (thresholds ?? []).map((row) => ({
@@ -93,6 +103,11 @@ export default async function SettingsPage() {
     is_active: Boolean(row.is_active),
   }))
 
+  const hyperliquidAddress =
+    (hyperliquidConfig?.[0]?.main_address as string | undefined) ?? null
+  const hyperliquidLastSynced =
+    (lastSyncRow?.[0]?.last_synced_at as string | undefined) ?? null
+
   return (
     <PageContainer>
       <PageHeader title="Settings" subtitle="Configure your trading system" />
@@ -111,6 +126,16 @@ export default async function SettingsPage() {
               <StrategiesEditor
                 initialStrategies={strategyRows}
                 universeSymbols={universeSymbols}
+              />
+            ),
+          },
+          {
+            id: 'hyperliquid',
+            label: 'Hyperliquid',
+            content: (
+              <HyperliquidSettings
+                initialAddress={hyperliquidAddress}
+                lastSyncedAt={hyperliquidLastSynced}
               />
             ),
           },
