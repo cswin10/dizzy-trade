@@ -1,9 +1,14 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useTransition } from 'react'
 import { createPortal } from 'react-dom'
 import { useFormState, useFormStatus } from 'react-dom'
 
+import {
+  linkTradeToPositionAction,
+  resyncTradeAction,
+  unlinkTradeAction,
+} from '@/app/actions/hyperliquid'
 import { deleteTradeAction } from '@/app/actions/trade'
 import {
   initialTradeActionState,
@@ -109,6 +114,39 @@ export function TradeRowActions({ trade }: Props) {
     if (deleteState.status === 'success') setConfirmDelete(false)
   }, [deleteState])
 
+  // Hyperliquid action helpers. We surface the result via a small
+  // toast string that lives inline at the top of the menu so the
+  // operator gets immediate feedback without a separate dialog.
+  const [hyperliquidPending, startHyperliquidTransition] = useTransition()
+  const [hyperliquidNote, setHyperliquidNote] = useState<{
+    tone: 'success' | 'error'
+    message: string
+  } | null>(null)
+
+  const runHyperliquid = (
+    action: () => Promise<{ ok: boolean; message?: string }>,
+    successMessage: string,
+  ) => {
+    setHyperliquidNote(null)
+    startHyperliquidTransition(async () => {
+      const result = await action()
+      if (!result.ok) {
+        setHyperliquidNote({
+          tone: 'error',
+          message: result.message ?? 'Action failed',
+        })
+        return
+      }
+      setHyperliquidNote({ tone: 'success', message: successMessage })
+    })
+  }
+
+  const liveStatus = trade.live_status
+  const canMarkLive =
+    isOpen && (liveStatus === 'not_live' || liveStatus == null)
+  const isLive = liveStatus === 'live'
+  const isClosedAuto = liveStatus === 'closed_auto'
+
   const openMenu = () => {
     if (!buttonRef.current) return
     const rect = buttonRef.current.getBoundingClientRect()
@@ -152,6 +190,65 @@ export function TradeRowActions({ trade }: Props) {
               className="z-[55] rounded-md border border-white/[0.06] bg-surface bg-panel-lit p-1 shadow-xl"
               onClick={(e) => e.stopPropagation()}
             >
+              {hyperliquidNote ? (
+                <p
+                  className={
+                    hyperliquidNote.tone === 'success'
+                      ? 'mx-1 mb-1 rounded bg-positive/10 px-2 py-1 text-[11px] text-positive'
+                      : 'mx-1 mb-1 rounded bg-negative/10 px-2 py-1 text-[11px] text-negative'
+                  }
+                >
+                  {hyperliquidNote.message}
+                </p>
+              ) : null}
+              {canMarkLive ? (
+                <button
+                  role="menuitem"
+                  type="button"
+                  disabled={hyperliquidPending}
+                  onClick={() =>
+                    runHyperliquid(
+                      () => linkTradeToPositionAction(trade.id),
+                      'Linked to Hyperliquid position',
+                    )
+                  }
+                  className="block w-full rounded-md px-3 py-2 text-left text-sm text-white/70 transition-colors duration-200 hover:bg-surface-2 hover:text-white disabled:opacity-50"
+                >
+                  {hyperliquidPending ? 'Linking...' : 'Mark as live'}
+                </button>
+              ) : null}
+              {isLive ? (
+                <button
+                  role="menuitem"
+                  type="button"
+                  disabled={hyperliquidPending}
+                  onClick={() =>
+                    runHyperliquid(
+                      () => unlinkTradeAction(trade.id),
+                      'Unlinked from Hyperliquid',
+                    )
+                  }
+                  className="block w-full rounded-md px-3 py-2 text-left text-sm text-white/70 transition-colors duration-200 hover:bg-surface-2 hover:text-white disabled:opacity-50"
+                >
+                  Unlink from Hyperliquid
+                </button>
+              ) : null}
+              {isClosedAuto ? (
+                <button
+                  role="menuitem"
+                  type="button"
+                  disabled={hyperliquidPending}
+                  onClick={() =>
+                    runHyperliquid(
+                      () => resyncTradeAction(trade.id),
+                      'Re-synced from Hyperliquid',
+                    )
+                  }
+                  className="block w-full rounded-md px-3 py-2 text-left text-sm text-white/70 transition-colors duration-200 hover:bg-surface-2 hover:text-white disabled:opacity-50"
+                >
+                  Re-sync from Hyperliquid
+                </button>
+              ) : null}
               {isOpen ? (
                 <button
                   role="menuitem"

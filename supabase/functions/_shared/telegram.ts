@@ -159,6 +159,80 @@ export function formatAlertMessage(alert: TelegramAlertPayload): string {
   return lines.join('\n')
 }
 
+export type TelegramClosePayload = {
+  symbol: string
+  direction: 'long' | 'short'
+  entry: number
+  exit: number
+  pnlGbp: number
+  rMultiple: number | null
+  outcome: 'win' | 'loss' | 'breakeven'
+  appUrl: string
+}
+
+export function formatCloseMessage(payload: TelegramClosePayload): string {
+  const dirLabel = payload.direction.toUpperCase()
+  const outcomeLabel =
+    payload.outcome === 'win'
+      ? 'WIN'
+      : payload.outcome === 'loss'
+        ? 'LOSS'
+        : 'BREAKEVEN'
+  const pnlSign = payload.pnlGbp >= 0 ? '+' : '-'
+  const pnlAbs = Math.abs(payload.pnlGbp).toFixed(0)
+  const rTail =
+    payload.rMultiple != null && Number.isFinite(payload.rMultiple)
+      ? ` (${payload.rMultiple >= 0 ? '+' : ''}${payload.rMultiple.toFixed(1)}R)`
+      : ''
+  return [
+    `🏁 *Trade closed* — *${escapeMarkdown(payload.symbol)}*`,
+    `Direction: ${dirLabel}`,
+    `Entry: ${payload.entry.toLocaleString(undefined, { maximumFractionDigits: 6 })} → Exit: ${payload.exit.toLocaleString(undefined, { maximumFractionDigits: 6 })}`,
+    `PnL: ${pnlSign}£${pnlAbs}${rTail}`,
+    `Outcome: ${outcomeLabel}`,
+    '',
+    `View: ${payload.appUrl}`,
+  ].join('\n')
+}
+
+export async function sendTelegramClose(
+  payload: TelegramClosePayload,
+): Promise<boolean> {
+  const token = Deno.env.get('TELEGRAM_BOT_TOKEN')
+  const chatId = Deno.env.get('TELEGRAM_CHAT_ID')
+  if (!token || !chatId) {
+    console.warn('[telegram] not configured, skipping close notification')
+    return false
+  }
+  const text = formatCloseMessage(payload)
+  try {
+    const response = await fetch(
+      `https://api.telegram.org/bot${token}/sendMessage`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text,
+          parse_mode: 'Markdown',
+          disable_web_page_preview: true,
+        }),
+      },
+    )
+    if (!response.ok) {
+      const body = await response.text()
+      console.error(
+        `[telegram] close send failed ${response.status}: ${body.slice(0, 200)}`,
+      )
+      return false
+    }
+    return true
+  } catch (error) {
+    console.error('[telegram] close send errored:', error)
+    return false
+  }
+}
+
 export async function sendTelegramAlert(
   alert: TelegramAlertPayload,
 ): Promise<boolean> {

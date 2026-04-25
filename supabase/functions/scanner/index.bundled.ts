@@ -1,5 +1,5 @@
 // AUTO-GENERATED. Do not edit. Run `npm run bundle:scanner` to regenerate.
-// Generated: 2026-04-25T11:09:26.882Z
+// Generated: 2026-04-25T11:54:42.374Z
 //
 // Source files (in dependency order):
 //   supabase/functions/_shared/hyperliquid.ts
@@ -12,6 +12,7 @@
 //   supabase/functions/_shared/frameworks/mean_reversion.ts
 //   supabase/functions/_shared/frameworks/index.ts
 //   supabase/functions/_shared/fx.ts
+//   supabase/functions/_shared/hyperliquid_user.ts
 //   supabase/functions/_shared/position_sizing.ts
 //   supabase/functions/_shared/timeframes.ts
 //   supabase/functions/scanner/index.ts
@@ -521,6 +522,80 @@ function formatAlertMessage(alert: TelegramAlertPayload): string {
   lines.push(`View in Dizzy Trade: ${alert.appUrl}`)
 
   return lines.join('\n')
+}
+
+type TelegramClosePayload = {
+  symbol: string
+  direction: 'long' | 'short'
+  entry: number
+  exit: number
+  pnlGbp: number
+  rMultiple: number | null
+  outcome: 'win' | 'loss' | 'breakeven'
+  appUrl: string
+}
+
+function formatCloseMessage(payload: TelegramClosePayload): string {
+  const dirLabel = payload.direction.toUpperCase()
+  const outcomeLabel =
+    payload.outcome === 'win'
+      ? 'WIN'
+      : payload.outcome === 'loss'
+        ? 'LOSS'
+        : 'BREAKEVEN'
+  const pnlSign = payload.pnlGbp >= 0 ? '+' : '-'
+  const pnlAbs = Math.abs(payload.pnlGbp).toFixed(0)
+  const rTail =
+    payload.rMultiple != null && Number.isFinite(payload.rMultiple)
+      ? ` (${payload.rMultiple >= 0 ? '+' : ''}${payload.rMultiple.toFixed(1)}R)`
+      : ''
+  return [
+    `🏁 *Trade closed* — *${escapeMarkdown(payload.symbol)}*`,
+    `Direction: ${dirLabel}`,
+    `Entry: ${payload.entry.toLocaleString(undefined, { maximumFractionDigits: 6 })} → Exit: ${payload.exit.toLocaleString(undefined, { maximumFractionDigits: 6 })}`,
+    `PnL: ${pnlSign}£${pnlAbs}${rTail}`,
+    `Outcome: ${outcomeLabel}`,
+    '',
+    `View: ${payload.appUrl}`,
+  ].join('\n')
+}
+
+async function sendTelegramClose(
+  payload: TelegramClosePayload,
+): Promise<boolean> {
+  const token = Deno.env.get('TELEGRAM_BOT_TOKEN')
+  const chatId = Deno.env.get('TELEGRAM_CHAT_ID')
+  if (!token || !chatId) {
+    console.warn('[telegram] not configured, skipping close notification')
+    return false
+  }
+  const text = formatCloseMessage(payload)
+  try {
+    const response = await fetch(
+      `https://api.telegram.org/bot${token}/sendMessage`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text,
+          parse_mode: 'Markdown',
+          disable_web_page_preview: true,
+        }),
+      },
+    )
+    if (!response.ok) {
+      const body = await response.text()
+      console.error(
+        `[telegram] close send failed ${response.status}: ${body.slice(0, 200)}`,
+      )
+      return false
+    }
+    return true
+  } catch (error) {
+    console.error('[telegram] close send errored:', error)
+    return false
+  }
 }
 
 async function sendTelegramAlert(
@@ -1475,6 +1550,180 @@ async function getGbpUsdRate(): Promise<number> {
 }
 
 // ---------------------------------------------------------------------
+// supabase/functions/_shared/hyperliquid_user.ts
+// ---------------------------------------------------------------------
+
+// Hyperliquid per-account read API.
+//
+// Hyperliquid exposes positions and fills publicly given an account
+// address: no auth, no signing. v1 of the position tracker is
+// therefore read-only, and the only piece of user-supplied state we
+// need is the main account address.
+//
+// When v1.1 introduces trade execution, an API wallet (a separate
+// authorised key) is layered on top of this client; for now both
+// functions hit the public `info` endpoint.
+//
+// Kept in lockstep with src/lib/hyperliquid_user.ts: same shapes,
+// same retry semantics, same timeouts. If you touch one, touch the
+// other.
+
+const INFO_URL__hyperliquid_user = 'https://api.hyperliquid.xyz/info'
+const REQUEST_TIMEOUT_MS = 10_000
+
+type HyperliquidPosition = {
+  coin: string
+  szi: number
+  entryPx: number | null
+  positionValue: number | null
+  unrealizedPnl: number | null
+  liquidationPx: number | null
+}
+
+type HyperliquidUserState = {
+  positions: HyperliquidPosition[]
+}
+
+type HyperliquidFillDir =
+  | 'Open Long'
+  | 'Close Long'
+  | 'Open Short'
+  | 'Close Short'
+
+type HyperliquidFill = {
+  coin: string
+  px: number
+  sz: number
+  side: 'A' | 'B'
+  time: number
+  dir: HyperliquidFillDir | string
+  closedPnl: number | null
+}
+
+type RawAssetPosition = {
+  position?: {
+    coin?: string
+    szi?: string | number
+    entryPx?: string | number
+    positionValue?: string | number
+    unrealizedPnl?: string | number
+    liquidationPx?: string | number | null
+  }
+}
+
+type RawUserState = {
+  assetPositions?: RawAssetPosition[]
+}
+
+type RawFill = {
+  coin?: string
+  px?: string | number
+  sz?: string | number
+  side?: string
+  time?: number
+  dir?: string
+  closedPnl?: string | number | null
+}
+
+function toNumber__hyperliquid_user(value: string | number | null | undefined): number | null {
+  if (value === undefined || value === null) return null
+  const n = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+function requireNumber(value: string | number | null | undefined): number {
+  return toNumber__hyperliquid_user(value) ?? 0
+}
+
+async function postInfo__hyperliquid_user<T>(body: Record<string, unknown>): Promise<T> {
+  async function once(): Promise<T> {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+    try {
+      const res = await fetch(INFO_URL__hyperliquid_user, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      })
+      if (!res.ok) {
+        throw new Error(`Hyperliquid ${res.status} ${res.statusText}`)
+      }
+      return (await res.json()) as T
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  try {
+    return await once()
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(`[hyperliquid_user] first attempt failed: ${message}`)
+    return await once()
+  }
+}
+
+/**
+ * Returns the open positions and account summary for a Hyperliquid
+ * main address. Throws after two failed attempts.
+ */
+async function getUserState(
+  mainAddress: string,
+): Promise<HyperliquidUserState> {
+  const raw = await postInfo__hyperliquid_user<RawUserState>({
+    type: 'clearinghouseState',
+    user: mainAddress,
+  })
+  const positions: HyperliquidPosition[] = []
+  for (const entry of raw.assetPositions ?? []) {
+    const p = entry.position
+    if (!p || !p.coin) continue
+    const szi = toNumber__hyperliquid_user(p.szi) ?? 0
+    if (szi === 0) continue
+    positions.push({
+      coin: String(p.coin),
+      szi,
+      entryPx: toNumber__hyperliquid_user(p.entryPx),
+      positionValue: toNumber__hyperliquid_user(p.positionValue),
+      unrealizedPnl: toNumber__hyperliquid_user(p.unrealizedPnl),
+      liquidationPx: toNumber__hyperliquid_user(p.liquidationPx ?? null),
+    })
+  }
+  return { positions }
+}
+
+/**
+ * Returns completed fills for a Hyperliquid main address. Optionally
+ * filtered to fills at or after `startTime` (Unix milliseconds).
+ */
+async function getUserFills(
+  mainAddress: string,
+  startTime?: number,
+): Promise<HyperliquidFill[]> {
+  const body: Record<string, unknown> = startTime
+    ? {
+        type: 'userFillsByTime',
+        user: mainAddress,
+        startTime,
+      }
+    : {
+        type: 'userFills',
+        user: mainAddress,
+      }
+  const raw = await postInfo__hyperliquid_user<RawFill[]>(body)
+  return (raw ?? []).map((row) => ({
+    coin: String(row.coin ?? ''),
+    px: requireNumber(row.px),
+    sz: requireNumber(row.sz),
+    side: row.side === 'A' || row.side === 'B' ? row.side : 'A',
+    time: typeof row.time === 'number' ? row.time : 0,
+    dir: String(row.dir ?? ''),
+    closedPnl: toNumber__hyperliquid_user(row.closedPnl ?? null),
+  }))
+}
+
+// ---------------------------------------------------------------------
 // supabase/functions/_shared/position_sizing.ts
 // ---------------------------------------------------------------------
 
@@ -1629,6 +1878,20 @@ type UniverseRow = {
   symbol: string
   coingecko_id: string | null
   is_watchlist: boolean
+}
+
+type HyperliquidConfigRow = {
+  tenant_id: string
+  main_address: string
+}
+
+type LiveTradeRow = {
+  id: string
+  tenant_id: string
+  asset_symbol: string
+  direction: 'long' | 'short'
+  entry_price: number
+  linked_at: string | null
 }
 
 type StrategyRow = {
@@ -2145,6 +2408,8 @@ async function runScan(): Promise<{
   durationMs: number
   truncated: boolean
   strategies: StrategySummary[]
+  positionsTracked: number
+  positionsClosed: number
 }> {
   const started = Date.now()
 
@@ -2179,6 +2444,8 @@ async function runScan(): Promise<{
       durationMs: Date.now() - started,
       truncated: false,
       strategies: [],
+      positionsTracked: 0,
+      positionsClosed: 0,
     }
   }
 
@@ -2190,15 +2457,21 @@ async function runScan(): Promise<{
     for (const sym of s.pair_symbols) strategyPairs.add(sym)
   }
 
-  const [thresholds, narrativeHeat, btcReturn24h, history, gbpUsdRate, rulesState] =
-    await Promise.all([
-      loadThresholds(),
-      loadNarrativeHeat(),
-      loadBtcReturn24h(),
-      loadHistory([...strategyPairs]),
-      getGbpUsdRate(),
-      loadRulesState(),
-    ])
+  const [
+    thresholds,
+    narrativeHeat,
+    btcReturn24h,
+    history,
+    gbpUsdRate,
+    rulesState,
+  ] = await Promise.all([
+    loadThresholds(),
+    loadNarrativeHeat(),
+    loadBtcReturn24h(),
+    loadHistory([...strategyPairs]),
+    getGbpUsdRate(),
+    loadRulesState(),
+  ])
 
   const budgetState = { softLogged: false, truncated: false }
   const summaries: StrategySummary[] = []
@@ -2228,13 +2501,236 @@ async function runScan(): Promise<{
     if (budgetState.truncated) break
   }
 
+  // Position sync: poll the Hyperliquid main accounts that have linked
+  // open trades, write a snapshot for each still-open position, and
+  // detect closes by comparing the live trade list against the live
+  // position list.
+  let positionsTracked = 0
+  let positionsClosed = 0
+  if (Date.now() - started < 50_000) {
+    const syncSummary = await syncHyperliquidPositions({
+      scanStartedAt: started,
+      gbpUsdRate,
+    })
+    positionsTracked = syncSummary.tracked
+    positionsClosed = syncSummary.closed
+    if (syncSummary.tracked > 0 || syncSummary.closed > 0) {
+      console.log(
+        `[scanner] hyperliquid sync tracked=${syncSummary.tracked} closed=${syncSummary.closed}`,
+      )
+    }
+  } else {
+    console.warn(
+      '[scanner] skipping Hyperliquid sync, scan budget exhausted',
+    )
+  }
+
   return {
     scanned: totalScanned,
     triggered: totalTriggered,
     durationMs: Date.now() - started,
     truncated: budgetState.truncated,
     strategies: summaries,
+    positionsTracked,
+    positionsClosed,
   }
+}
+
+type SyncSummary = { tracked: number; closed: number }
+
+async function loadHyperliquidConfigs(): Promise<HyperliquidConfigRow[]> {
+  const client = supabase()
+  const { data, error } = await client
+    .from('user_hyperliquid_config')
+    .select('tenant_id, main_address')
+  if (error) {
+    console.warn(`[scanner] hyperliquid config load failed: ${error.message}`)
+    return []
+  }
+  return (data ?? []) as HyperliquidConfigRow[]
+}
+
+async function loadLiveTrades(tenantId: string): Promise<LiveTradeRow[]> {
+  const client = supabase()
+  const { data, error } = await client
+    .from('trades')
+    .select('id, tenant_id, asset_symbol, direction, entry_price, linked_at')
+    .eq('tenant_id', tenantId)
+    .eq('live_status', 'live')
+  if (error) {
+    console.warn(
+      `[scanner] live trades load failed (tenant=${tenantId}): ${error.message}`,
+    )
+    return []
+  }
+  return (data ?? []) as LiveTradeRow[]
+}
+
+function findPositionForTrade(
+  positions: HyperliquidPosition[],
+  trade: LiveTradeRow,
+): HyperliquidPosition | undefined {
+  const wantedSign = trade.direction === 'long' ? 1 : -1
+  return positions.find((p) => {
+    if (p.coin !== trade.asset_symbol) return false
+    const sign = p.szi >= 0 ? 1 : -1
+    return sign === wantedSign
+  })
+}
+
+async function recordPositionSnapshot(
+  trade: LiveTradeRow,
+  position: HyperliquidPosition,
+): Promise<void> {
+  const client = supabase()
+  const nowIso = new Date().toISOString()
+  const [{ error: snapshotError }, { error: tradeError }] = await Promise.all([
+    client.from('hyperliquid_position_snapshots').insert({
+      tenant_id: trade.tenant_id,
+      trade_id: trade.id,
+      coin: position.coin,
+      size: position.szi,
+      entry_px: position.entryPx,
+      position_value: position.positionValue,
+      unrealized_pnl: position.unrealizedPnl,
+      liquidation_px: position.liquidationPx,
+    }),
+    client
+      .from('trades')
+      .update({ last_synced_at: nowIso })
+      .eq('id', trade.id)
+      .eq('tenant_id', trade.tenant_id),
+  ])
+  if (snapshotError) {
+    console.warn(
+      `[scanner] snapshot insert failed for trade ${trade.id}: ${snapshotError.message}`,
+    )
+  }
+  if (tradeError) {
+    console.warn(
+      `[scanner] last_synced_at update failed for trade ${trade.id}: ${tradeError.message}`,
+    )
+  }
+}
+
+async function detectAndApplyClose(
+  mainAddress: string,
+  trade: LiveTradeRow,
+  gbpUsdRate: number,
+): Promise<boolean> {
+  const closeDir = trade.direction === 'long' ? 'Close Long' : 'Close Short'
+  const linkedAt = trade.linked_at
+    ? Date.parse(trade.linked_at)
+    : Date.now() - 7 * 24 * 60 * 60 * 1000
+  let fills
+  try {
+    fills = await getUserFills(mainAddress, linkedAt)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(
+      `[scanner] fills load failed for ${trade.id}: ${message}`,
+    )
+    return false
+  }
+  const matching = fills
+    .filter((f) => f.coin === trade.asset_symbol && f.dir === closeDir)
+    .sort((a, b) => b.time - a.time)
+  const close = matching[0]
+  if (!close) return false
+
+  const sign = trade.direction === 'long' ? 1 : -1
+  const pnlUsd = (close.px - trade.entry_price) * close.sz * sign
+  const outcome = pnlUsd > 0 ? 'win' : pnlUsd < 0 ? 'loss' : 'breakeven'
+
+  const client = supabase()
+  // The conditional eq on live_status='live' is the safety net
+  // against racing a manual close: if the user updated the trade
+  // first, live_status will already be 'closed_manual' and this
+  // update is a no-op.
+  const { data, error } = await client
+    .from('trades')
+    .update({
+      exit_price: close.px,
+      exit_size: close.sz,
+      exit_at: new Date(close.time).toISOString(),
+      pnl: pnlUsd,
+      outcome,
+      live_status: 'closed_auto',
+      last_synced_at: new Date().toISOString(),
+    })
+    .eq('id', trade.id)
+    .eq('tenant_id', trade.tenant_id)
+    .eq('live_status', 'live')
+    .select('id')
+  if (error) {
+    console.warn(
+      `[scanner] close update failed for ${trade.id}: ${error.message}`,
+    )
+    return false
+  }
+  const updated = (data ?? []).length > 0
+  if (!updated) return false
+
+  const pnlGbp = gbpUsdRate > 0 ? pnlUsd / gbpUsdRate : pnlUsd
+  const ok = await sendTelegramClose({
+    symbol: trade.asset_symbol,
+    direction: trade.direction,
+    entry: trade.entry_price,
+    exit: close.px,
+    pnlGbp,
+    rMultiple: null,
+    outcome,
+    appUrl: `${APP_URL}/journal`,
+  })
+  if (!ok) {
+    console.warn(`[scanner] close notification skipped for ${trade.id}`)
+  }
+  return true
+}
+
+async function syncHyperliquidPositions(args: {
+  scanStartedAt: number
+  gbpUsdRate: number
+}): Promise<SyncSummary> {
+  const summary: SyncSummary = { tracked: 0, closed: 0 }
+  const configs = await loadHyperliquidConfigs()
+  if (configs.length === 0) return summary
+
+  for (const config of configs) {
+    if (Date.now() - args.scanStartedAt > 50_000) {
+      console.warn(
+        '[scanner] Hyperliquid sync truncated, resuming next tick',
+      )
+      break
+    }
+    let state
+    try {
+      state = await getUserState(config.main_address)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.warn(
+        `[scanner] userState failed for ${config.main_address}: ${message}`,
+      )
+      continue
+    }
+    const trades = await loadLiveTrades(config.tenant_id)
+    for (const trade of trades) {
+      const position = findPositionForTrade(state.positions, trade)
+      if (position) {
+        await recordPositionSnapshot(trade, position)
+        summary.tracked++
+        continue
+      }
+      const closed = await detectAndApplyClose(
+        config.main_address,
+        trade,
+        args.gbpUsdRate,
+      )
+      if (closed) summary.closed++
+    }
+  }
+
+  return summary
 }
 
 Deno.serve(async () => {

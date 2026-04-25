@@ -27,13 +27,18 @@ import {
   type Candle,
   type MarketData,
 } from '../_shared/hyperliquid.ts'
-import { sendTelegramAlert } from '../_shared/telegram.ts'
+import { sendTelegramAlert, sendTelegramClose } from '../_shared/telegram.ts'
 import { FRAMEWORKS } from '../_shared/frameworks/index.ts'
 import type {
   MarketSnapshot,
   NarrativeHeat,
 } from '../_shared/frameworks/types.ts'
 import { getGbpUsdRate } from '../_shared/fx.ts'
+import {
+  getUserFills,
+  getUserState,
+  type HyperliquidPosition,
+} from '../_shared/hyperliquid_user.ts'
 import { computeSizing } from '../_shared/position_sizing.ts'
 import {
   evaluateRules,
@@ -57,6 +62,20 @@ type UniverseRow = {
   symbol: string
   coingecko_id: string | null
   is_watchlist: boolean
+}
+
+type HyperliquidConfigRow = {
+  tenant_id: string
+  main_address: string
+}
+
+type LiveTradeRow = {
+  id: string
+  tenant_id: string
+  asset_symbol: string
+  direction: 'long' | 'short'
+  entry_price: number
+  linked_at: string | null
 }
 
 type StrategyRow = {
@@ -573,6 +592,8 @@ async function runScan(): Promise<{
   durationMs: number
   truncated: boolean
   strategies: StrategySummary[]
+  positionsTracked: number
+  positionsClosed: number
 }> {
   const started = Date.now()
 
@@ -607,6 +628,8 @@ async function runScan(): Promise<{
       durationMs: Date.now() - started,
       truncated: false,
       strategies: [],
+      positionsTracked: 0,
+      positionsClosed: 0,
     }
   }
 
@@ -662,13 +685,230 @@ async function runScan(): Promise<{
     if (budgetState.truncated) break
   }
 
+  // Position sync: poll the Hyperliquid main accounts that have linked
+  // open trades, write a snapshot for each still-open position, and
+  // detect closes by comparing the live trade list against the live
+  // position list.
+  let positionsTracked = 0
+  let positionsClosed = 0
+  if (Date.now() - started < 50_000) {
+    const syncSummary = await syncHyperliquidPositions({
+      scanStartedAt: started,
+      gbpUsdRate,
+    })
+    positionsTracked = syncSummary.tracked
+    positionsClosed = syncSummary.closed
+    if (syncSummary.tracked > 0 || syncSummary.closed > 0) {
+      console.log(
+        `[scanner] hyperliquid sync tracked=${syncSummary.tracked} closed=${syncSummary.closed}`,
+      )
+    }
+  } else {
+    console.warn('[scanner] skipping Hyperliquid sync, scan budget exhausted')
+  }
+
   return {
     scanned: totalScanned,
     triggered: totalTriggered,
     durationMs: Date.now() - started,
     truncated: budgetState.truncated,
     strategies: summaries,
+    positionsTracked,
+    positionsClosed,
   }
+}
+
+type SyncSummary = { tracked: number; closed: number }
+
+async function loadHyperliquidConfigs(): Promise<HyperliquidConfigRow[]> {
+  const client = supabase()
+  const { data, error } = await client
+    .from('user_hyperliquid_config')
+    .select('tenant_id, main_address')
+  if (error) {
+    console.warn(`[scanner] hyperliquid config load failed: ${error.message}`)
+    return []
+  }
+  return (data ?? []) as HyperliquidConfigRow[]
+}
+
+async function loadLiveTrades(tenantId: string): Promise<LiveTradeRow[]> {
+  const client = supabase()
+  const { data, error } = await client
+    .from('trades')
+    .select('id, tenant_id, asset_symbol, direction, entry_price, linked_at')
+    .eq('tenant_id', tenantId)
+    .eq('live_status', 'live')
+  if (error) {
+    console.warn(
+      `[scanner] live trades load failed (tenant=${tenantId}): ${error.message}`,
+    )
+    return []
+  }
+  return (data ?? []) as LiveTradeRow[]
+}
+
+function findPositionForTrade(
+  positions: HyperliquidPosition[],
+  trade: LiveTradeRow,
+): HyperliquidPosition | undefined {
+  const wantedSign = trade.direction === 'long' ? 1 : -1
+  return positions.find((p) => {
+    if (p.coin !== trade.asset_symbol) return false
+    const sign = p.szi >= 0 ? 1 : -1
+    return sign === wantedSign
+  })
+}
+
+async function recordPositionSnapshot(
+  trade: LiveTradeRow,
+  position: HyperliquidPosition,
+): Promise<void> {
+  const client = supabase()
+  const nowIso = new Date().toISOString()
+  const [{ error: snapshotError }, { error: tradeError }] = await Promise.all([
+    client.from('hyperliquid_position_snapshots').insert({
+      tenant_id: trade.tenant_id,
+      trade_id: trade.id,
+      coin: position.coin,
+      size: position.szi,
+      entry_px: position.entryPx,
+      position_value: position.positionValue,
+      unrealized_pnl: position.unrealizedPnl,
+      liquidation_px: position.liquidationPx,
+    }),
+    client
+      .from('trades')
+      .update({ last_synced_at: nowIso })
+      .eq('id', trade.id)
+      .eq('tenant_id', trade.tenant_id),
+  ])
+  if (snapshotError) {
+    console.warn(
+      `[scanner] snapshot insert failed for trade ${trade.id}: ${snapshotError.message}`,
+    )
+  }
+  if (tradeError) {
+    console.warn(
+      `[scanner] last_synced_at update failed for trade ${trade.id}: ${tradeError.message}`,
+    )
+  }
+}
+
+async function detectAndApplyClose(
+  mainAddress: string,
+  trade: LiveTradeRow,
+  gbpUsdRate: number,
+): Promise<boolean> {
+  const closeDir = trade.direction === 'long' ? 'Close Long' : 'Close Short'
+  const linkedAt = trade.linked_at
+    ? Date.parse(trade.linked_at)
+    : Date.now() - 7 * 24 * 60 * 60 * 1000
+  let fills
+  try {
+    fills = await getUserFills(mainAddress, linkedAt)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(`[scanner] fills load failed for ${trade.id}: ${message}`)
+    return false
+  }
+  const matching = fills
+    .filter((f) => f.coin === trade.asset_symbol && f.dir === closeDir)
+    .sort((a, b) => b.time - a.time)
+  const close = matching[0]
+  if (!close) return false
+
+  const sign = trade.direction === 'long' ? 1 : -1
+  const pnlUsd = (close.px - trade.entry_price) * close.sz * sign
+  const outcome = pnlUsd > 0 ? 'win' : pnlUsd < 0 ? 'loss' : 'breakeven'
+
+  const client = supabase()
+  // The conditional eq on live_status='live' is the safety net
+  // against racing a manual close: if the user updated the trade
+  // first, live_status will already be 'closed_manual' and this
+  // update is a no-op.
+  const { data, error } = await client
+    .from('trades')
+    .update({
+      exit_price: close.px,
+      exit_size: close.sz,
+      exit_at: new Date(close.time).toISOString(),
+      pnl: pnlUsd,
+      outcome,
+      live_status: 'closed_auto',
+      last_synced_at: new Date().toISOString(),
+    })
+    .eq('id', trade.id)
+    .eq('tenant_id', trade.tenant_id)
+    .eq('live_status', 'live')
+    .select('id')
+  if (error) {
+    console.warn(
+      `[scanner] close update failed for ${trade.id}: ${error.message}`,
+    )
+    return false
+  }
+  const updated = (data ?? []).length > 0
+  if (!updated) return false
+
+  const pnlGbp = gbpUsdRate > 0 ? pnlUsd / gbpUsdRate : pnlUsd
+  const ok = await sendTelegramClose({
+    symbol: trade.asset_symbol,
+    direction: trade.direction,
+    entry: trade.entry_price,
+    exit: close.px,
+    pnlGbp,
+    rMultiple: null,
+    outcome,
+    appUrl: `${APP_URL}/journal`,
+  })
+  if (!ok) {
+    console.warn(`[scanner] close notification skipped for ${trade.id}`)
+  }
+  return true
+}
+
+async function syncHyperliquidPositions(args: {
+  scanStartedAt: number
+  gbpUsdRate: number
+}): Promise<SyncSummary> {
+  const summary: SyncSummary = { tracked: 0, closed: 0 }
+  const configs = await loadHyperliquidConfigs()
+  if (configs.length === 0) return summary
+
+  for (const config of configs) {
+    if (Date.now() - args.scanStartedAt > 50_000) {
+      console.warn('[scanner] Hyperliquid sync truncated, resuming next tick')
+      break
+    }
+    let state
+    try {
+      state = await getUserState(config.main_address)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.warn(
+        `[scanner] userState failed for ${config.main_address}: ${message}`,
+      )
+      continue
+    }
+    const trades = await loadLiveTrades(config.tenant_id)
+    for (const trade of trades) {
+      const position = findPositionForTrade(state.positions, trade)
+      if (position) {
+        await recordPositionSnapshot(trade, position)
+        summary.tracked++
+        continue
+      }
+      const closed = await detectAndApplyClose(
+        config.main_address,
+        trade,
+        args.gbpUsdRate,
+      )
+      if (closed) summary.closed++
+    }
+  }
+
+  return summary
 }
 
 Deno.serve(async () => {

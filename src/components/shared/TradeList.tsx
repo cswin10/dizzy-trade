@@ -105,6 +105,46 @@ function NarrativePill({ tag }: { tag: string | null }) {
   )
 }
 
+function LiveStatusPill({ status }: { status: Trade['live_status'] }) {
+  if (status === 'pending_link') {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-md bg-warning/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-warning">
+        <span
+          aria-hidden
+          className="h-1.5 w-1.5 animate-pulse rounded-full bg-warning"
+        />
+        Linking
+      </span>
+    )
+  }
+  if (status === 'live') {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-md bg-accent/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-accent">
+        <span
+          aria-hidden
+          className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent"
+        />
+        Live
+      </span>
+    )
+  }
+  if (status === 'closed_auto') {
+    return (
+      <span className="inline-flex items-center rounded-md bg-positive/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-positive/85">
+        Auto
+      </span>
+    )
+  }
+  if (status === 'closed_manual') {
+    return null
+  }
+  return (
+    <span className="inline-flex items-center rounded-md bg-white/[0.06] px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-white/45">
+      Manual
+    </span>
+  )
+}
+
 function priceFormat(value: number | null): string {
   if (value === null || value === undefined) return '—'
   return value.toLocaleString('en-GB', {
@@ -247,7 +287,10 @@ export function TradeList({ trades, variant = 'full' }: TradeListProps) {
                 {dateFormatter.format(new Date(trade.entry_at))}
               </td>
               <td className="px-3 py-3 font-medium text-white">
-                {trade.asset_symbol}
+                <span className="inline-flex items-center gap-2">
+                  <span>{trade.asset_symbol}</span>
+                  <LiveStatusPill status={trade.live_status} />
+                </span>
               </td>
               <td className="px-3 py-3">
                 <DirectionBadge direction={trade.direction} />
@@ -300,6 +343,7 @@ export function TradeList({ trades, variant = 'full' }: TradeListProps) {
                     {trade.asset_symbol}
                   </span>
                   <DirectionBadge direction={trade.direction} />
+                  <LiveStatusPill status={trade.live_status} />
                 </div>
                 <span className="text-xs text-white/45">
                   {dateFormatter.format(new Date(trade.entry_at))}
