@@ -35,6 +35,12 @@ import type {
 } from '../_shared/frameworks/types.ts'
 import { getGbpUsdRate } from '../_shared/fx.ts'
 import { computeSizing } from '../_shared/position_sizing.ts'
+import {
+  evaluateRules,
+  type RuleViolation,
+  type RulesContext,
+  type RulesStatus,
+} from '../_shared/rules.ts'
 import { nextCandleClose } from '../_shared/timeframes.ts'
 
 const CONCURRENCY = 5
@@ -60,7 +66,18 @@ type StrategyRow = {
   timeframe: Timeframe
   pair_symbols: string[]
   risk_amount_gbp: number
+  min_rr: number
+  max_concurrent_positions: number
+  max_daily_loss_gbp: number | null
+  max_consecutive_losers: number | null
   is_active: boolean
+}
+
+type RulesState = {
+  open_positions_count: number
+  today_realised_pnl_gbp: number
+  consecutive_losers_count: number
+  last_loss_at: Date | null
 }
 
 // Simple concurrency pool: run `fn` over every item, but never more than
@@ -116,13 +133,87 @@ async function loadActiveStrategies(): Promise<StrategyRow[]> {
   const { data, error } = await client
     .from('strategies')
     .select(
-      'id, name, framework_id, timeframe, pair_symbols, risk_amount_gbp, is_active',
+      'id, name, framework_id, timeframe, pair_symbols, risk_amount_gbp, min_rr, max_concurrent_positions, max_daily_loss_gbp, max_consecutive_losers, is_active',
     )
     .eq('is_active', true)
   if (error) {
     throw new Error(`strategies load failed: ${error.message}`)
   }
   return (data ?? []) as StrategyRow[]
+}
+
+// At scan time the scanner has no per-tenant context; for v1 with a
+// single trader we aggregate across all trades. When we go multi-user
+// this needs to scope by tenant.
+async function loadRulesState(): Promise<RulesState> {
+  const client = supabase()
+  const todayUtcStart = new Date()
+  todayUtcStart.setUTCHours(0, 0, 0, 0)
+
+  const [openRes, pnlRes, lastLossRes, recentLossesRes] = await Promise.all([
+    client
+      .from('trades')
+      .select('id', { count: 'exact', head: true })
+      .eq('outcome', 'open'),
+    client
+      .from('trades')
+      .select('pnl')
+      .in('outcome', ['win', 'loss', 'breakeven'])
+      .gte('exit_at', todayUtcStart.toISOString()),
+    client
+      .from('trades')
+      .select('exit_at')
+      .eq('outcome', 'loss')
+      .order('exit_at', { ascending: false })
+      .limit(1),
+    client
+      .from('trades')
+      .select('outcome, exit_at')
+      .in('outcome', ['win', 'loss', 'breakeven'])
+      .order('exit_at', { ascending: false })
+      .limit(20),
+  ])
+
+  const open_positions_count = openRes.count ?? 0
+
+  let today_realised_pnl_gbp = 0
+  for (const row of pnlRes.data ?? []) {
+    const pnl = row.pnl
+    if (typeof pnl === 'number' && Number.isFinite(pnl)) {
+      today_realised_pnl_gbp += pnl
+    }
+  }
+
+  let consecutive_losers_count = 0
+  for (const row of recentLossesRes.data ?? []) {
+    if (row.outcome === 'loss') consecutive_losers_count++
+    else break
+  }
+
+  let last_loss_at: Date | null = null
+  const lastLoss = lastLossRes.data?.[0]?.exit_at
+  if (typeof lastLoss === 'string') last_loss_at = new Date(lastLoss)
+
+  return {
+    open_positions_count,
+    today_realised_pnl_gbp,
+    consecutive_losers_count,
+    last_loss_at,
+  }
+}
+
+function computeRrRatio(
+  direction: 'long' | 'short' | undefined,
+  entry: number | null | undefined,
+  stop: number | null | undefined,
+  target: number | null | undefined,
+): number | null {
+  if (entry == null || stop == null || target == null) return null
+  if (!direction) return null
+  const risk = direction === 'long' ? entry - stop : stop - entry
+  const reward = direction === 'long' ? target - entry : entry - target
+  if (risk <= 0 || reward <= 0) return null
+  return reward / risk
 }
 
 // Nested map: framework_id -> key -> value. Frameworks that have no
@@ -246,6 +337,8 @@ type AlertInsert = {
   valid_until: string | null
   risk_amount_gbp: number | null
   gbp_usd_rate: number | null
+  rules_status: RulesStatus | null
+  rules_violations: RuleViolation[] | null
 }
 
 async function insertAlert(alert: AlertInsert): Promise<string | null> {
@@ -285,6 +378,7 @@ async function evaluateStrategy(args: {
   narrativeHeat: Map<string, NarrativeHeat>
   btcReturn24h: number
   gbpUsdRate: number
+  rulesState: RulesState
   scanStartedAt: number
   budgetState: { softLogged: boolean; truncated: boolean }
 }): Promise<StrategySummary> {
@@ -297,6 +391,7 @@ async function evaluateStrategy(args: {
     narrativeHeat,
     btcReturn24h,
     gbpUsdRate,
+    rulesState,
     scanStartedAt,
     budgetState,
   } = args
@@ -391,6 +486,28 @@ async function evaluateStrategy(args: {
     }
     const validUntil = nextCandleClose(strategy.timeframe)
 
+    const rrRatio = computeRrRatio(
+      result.suggestedDirection,
+      result.suggestedEntry,
+      result.suggestedStop,
+      result.suggestedTarget,
+    )
+    const rulesContext: RulesContext = {
+      strategy: {
+        risk_amount_gbp: strategy.risk_amount_gbp,
+        min_rr: strategy.min_rr,
+        max_concurrent_positions: strategy.max_concurrent_positions,
+        max_daily_loss_gbp: strategy.max_daily_loss_gbp,
+        max_consecutive_losers: strategy.max_consecutive_losers,
+      },
+      proposedTrade: {
+        risk_amount_gbp: strategy.risk_amount_gbp,
+        rr_ratio: rrRatio,
+      },
+      currentState: rulesState,
+    }
+    const rulesResult = evaluateRules(rulesContext)
+
     const alertId = await insertAlert({
       strategy_id: strategy.id,
       framework_id: framework.id,
@@ -409,6 +526,8 @@ async function evaluateStrategy(args: {
       valid_until: validUntil.toISOString(),
       risk_amount_gbp: strategy.risk_amount_gbp,
       gbp_usd_rate: gbpUsdRate,
+      rules_status: rulesResult.status,
+      rules_violations: rulesResult.violations,
     })
     if (!alertId) return
 
@@ -438,6 +557,8 @@ async function evaluateStrategy(args: {
         riskAmountGbp: strategy.risk_amount_gbp,
         validUntil,
         timeframe: strategy.timeframe,
+        rulesStatus: rulesResult.status,
+        rulesViolations: rulesResult.violations,
       })
       if (ok) await markNotified(alertId)
     }
@@ -497,14 +618,21 @@ async function runScan(): Promise<{
     for (const sym of s.pair_symbols) strategyPairs.add(sym)
   }
 
-  const [thresholds, narrativeHeat, btcReturn24h, history, gbpUsdRate] =
-    await Promise.all([
-      loadThresholds(),
-      loadNarrativeHeat(),
-      loadBtcReturn24h(),
-      loadHistory([...strategyPairs]),
-      getGbpUsdRate(),
-    ])
+  const [
+    thresholds,
+    narrativeHeat,
+    btcReturn24h,
+    history,
+    gbpUsdRate,
+    rulesState,
+  ] = await Promise.all([
+    loadThresholds(),
+    loadNarrativeHeat(),
+    loadBtcReturn24h(),
+    loadHistory([...strategyPairs]),
+    getGbpUsdRate(),
+    loadRulesState(),
+  ])
 
   const budgetState = { softLogged: false, truncated: false }
   const summaries: StrategySummary[] = []
@@ -521,6 +649,7 @@ async function runScan(): Promise<{
       narrativeHeat,
       btcReturn24h,
       gbpUsdRate,
+      rulesState,
       scanStartedAt: started,
       budgetState,
     })

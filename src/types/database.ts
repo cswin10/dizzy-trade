@@ -377,6 +377,8 @@ export type Database = {
           valid_until: string | null
           risk_amount_gbp: number | null
           gbp_usd_rate: number | null
+          rules_status: 'passed' | 'blocked' | 'warning' | null
+          rules_violations: unknown
         }
         Insert: {
           id?: string
@@ -402,6 +404,8 @@ export type Database = {
           valid_until?: string | null
           risk_amount_gbp?: number | null
           gbp_usd_rate?: number | null
+          rules_status?: 'passed' | 'blocked' | 'warning' | null
+          rules_violations?: unknown
         }
         Update: {
           id?: string
@@ -427,12 +431,29 @@ export type Database = {
           valid_until?: string | null
           risk_amount_gbp?: number | null
           gbp_usd_rate?: number | null
+          rules_status?: 'passed' | 'blocked' | 'warning' | null
+          rules_violations?: unknown
         }
         Relationships: []
       }
     }
-    Views: Record<string, never>
+    Views: {
+      daily_pnl: {
+        Row: {
+          user_id: string | null
+          tenant_id: string | null
+          trade_date: string | null
+          realised_pnl_gbp: number | null
+          trades_count: number | null
+        }
+        Relationships: []
+      }
+    }
     Functions: {
+      consecutive_loser_count: {
+        Args: { p_tenant_id: string }
+        Returns: number
+      }
       store_user_secret: {
         Args: {
           p_integration: string

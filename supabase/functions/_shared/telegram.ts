@@ -2,6 +2,8 @@
 // id are unset we return false and skip the notification, so a
 // partially-configured deployment still runs cleanly.
 
+import type { RuleViolation, RulesStatus } from './rules.ts'
+
 export type TelegramAlertPayload = {
   framework_name: string
   symbol: string
@@ -18,6 +20,8 @@ export type TelegramAlertPayload = {
   riskAmountGbp?: number | null
   validUntil?: Date | null
   timeframe?: '15m' | '1h' | '4h' | '1d' | null
+  rulesStatus?: RulesStatus | null
+  rulesViolations?: RuleViolation[] | null
 }
 
 function pct(x: number, digits = 2): string {
@@ -69,6 +73,27 @@ function formatValidUntil(validUntil: Date, timeframe: string | null): string {
   return `${hh}:${mm} UTC${tfLabel}`
 }
 
+function rulesHeaderPrefix(status: RulesStatus | null | undefined): {
+  emoji: string
+  suffix: string
+} {
+  if (status === 'blocked') return { emoji: '🛑', suffix: ' BLOCKED' }
+  return { emoji: '🚨', suffix: '' }
+}
+
+function rulesSummaryLine(
+  status: RulesStatus | null | undefined,
+  violations: RuleViolation[] | null | undefined,
+): string | null {
+  if (!status || status === 'passed' || !violations || violations.length === 0)
+    return null
+  const reasons = violations.map((v) => v.reason).join('; ')
+  if (status === 'blocked') {
+    return `🛑 *Rules blocked*: ${escapeMarkdown(reasons)}`
+  }
+  return `⚠️ *Rules warning*: ${escapeMarkdown(reasons)}`
+}
+
 export function formatAlertMessage(alert: TelegramAlertPayload): string {
   const dirLabel = alert.direction.toUpperCase()
   const fundingLabel = pct(alert.funding, 3)
@@ -89,8 +114,9 @@ export function formatAlertMessage(alert: TelegramAlertPayload): string {
     return `Target: ${alert.target.toLocaleString(undefined, { maximumFractionDigits: 6 })}${tail}`
   })()
 
+  const header = rulesHeaderPrefix(alert.rulesStatus)
   const lines: string[] = [
-    `🚨 *${escapeMarkdown(alert.framework_name)}* — *${escapeMarkdown(alert.symbol)}*`,
+    `${header.emoji} *${escapeMarkdown(alert.framework_name)}${header.suffix}* — *${escapeMarkdown(alert.symbol)}*`,
     `Direction: *${dirLabel}*`,
     `Entry: ${alert.entry.toLocaleString(undefined, { maximumFractionDigits: 6 })}`,
     stopLine,
@@ -112,6 +138,12 @@ export function formatAlertMessage(alert: TelegramAlertPayload): string {
       const warn = lev > 100 ? ' ⚠️ HIGH LEVERAGE' : ''
       lines.push(`Leverage: ${lev}x${warn}`)
     }
+  }
+
+  const rulesLine = rulesSummaryLine(alert.rulesStatus, alert.rulesViolations)
+  if (rulesLine) {
+    lines.push('')
+    lines.push(rulesLine)
   }
 
   if (alert.validUntil) {
