@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation'
 
+import { getDashboardAnalytics } from '@/app/actions/analytics'
 import { ActivityTabs } from '@/components/shared/ActivityTabs'
+import { AnalyticsDashboardWidget } from '@/components/shared/AnalyticsDashboardWidget'
 import { LogTradeButton } from '@/components/shared/LogTradeButton'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { PageHeader } from '@/components/shared/PageHeader'
@@ -123,6 +125,11 @@ export default async function DashboardPage() {
     .select('*')
     .order('entry_at', { ascending: false })
     .limit(10)
+
+  // Brief analytics for the dashboard widget. The full deal lives on
+  // /analytics; here we surface win rate, avg R, total PnL, and a
+  // last-30-day spark line.
+  const dashboardAnalytics = await getDashboardAnalytics()
 
   return (
     <PageContainer>
@@ -266,6 +273,13 @@ export default async function DashboardPage() {
             <span className="text-xs text-white/55">All systems green</span>
           </div>
         </Panel>
+      </div>
+
+      <div className="mt-4">
+        <AnalyticsDashboardWidget
+          overview={dashboardAnalytics.overview}
+          curve={dashboardAnalytics.curve}
+        />
       </div>
 
       <div className="mt-4">
