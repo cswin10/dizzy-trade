@@ -147,6 +147,7 @@ export type Database = {
             | null
           linked_at: string | null
           last_synced_at: string | null
+          btc_context_at_entry: 'up' | 'down' | 'ranging' | null
         }
         Insert: {
           id?: string
@@ -185,6 +186,7 @@ export type Database = {
             | null
           linked_at?: string | null
           last_synced_at?: string | null
+          btc_context_at_entry?: 'up' | 'down' | 'ranging' | null
         }
         Update: {
           id?: string
@@ -223,6 +225,31 @@ export type Database = {
             | null
           linked_at?: string | null
           last_synced_at?: string | null
+          btc_context_at_entry?: 'up' | 'down' | 'ranging' | null
+        }
+        Relationships: []
+      }
+      user_preferences: {
+        Row: {
+          id: string
+          tenant_id: string
+          analytics_layout: string[] | null
+          created_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          id?: string
+          tenant_id: string
+          analytics_layout?: string[] | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          id?: string
+          tenant_id?: string
+          analytics_layout?: string[] | null
+          created_at?: string | null
+          updated_at?: string | null
         }
         Relationships: []
       }

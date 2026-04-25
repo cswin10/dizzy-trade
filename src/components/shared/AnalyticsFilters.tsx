@@ -5,8 +5,23 @@ import { useCallback, useEffect, useRef, useState, useTransition } from 'react'
 
 import { twMerge } from 'tailwind-merge'
 
+import { DateRangePicker } from '@/components/shared/DateRangePicker'
 import { NARRATIVE_TAGS } from '@/lib/constants/trade'
 import { DATE_RANGE_PRESETS } from '@/lib/validations/analytics'
+
+const dayMonthFormatter = new Intl.DateTimeFormat('en-GB', {
+  day: '2-digit',
+  month: 'short',
+})
+
+function formatRangeLabel(from: string, to: string): string {
+  const fromDate = new Date(from)
+  const toDate = new Date(to)
+  if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
+    return 'CUSTOM'
+  }
+  return `${dayMonthFormatter.format(fromDate)} - ${dayMonthFormatter.format(toDate)}`
+}
 
 export type AnalyticsFiltersBarProps = {
   universeSymbols: string[]
@@ -48,7 +63,14 @@ export function AnalyticsFiltersBar({
     [params, pathname, router],
   )
 
-  const range = (params.get('range') as keyof typeof DATE_PRESET_LABEL) ?? 'all'
+  const rangeParam = params.get('range') as
+    | keyof typeof DATE_PRESET_LABEL
+    | null
+  const fromParam = params.get('from')
+  const toParam = params.get('to')
+  const isCustom = Boolean(fromParam && toParam)
+  const range = rangeParam && !isCustom ? rangeParam : isCustom ? null : 'all'
+  const [pickerOpen, setPickerOpen] = useState(false)
   const direction = (params.get('direction') ?? 'all') as
     | 'all'
     | 'long'
@@ -82,6 +104,8 @@ export function AnalyticsFiltersBar({
               active={range === preset}
               onClick={() =>
                 update((next) => {
+                  next.delete('from')
+                  next.delete('to')
                   if (preset === 'all') next.delete('range')
                   else next.set('range', preset)
                 })
@@ -90,6 +114,33 @@ export function AnalyticsFiltersBar({
               {DATE_PRESET_LABEL[preset]}
             </RangeButton>
           ))}
+          <div className="relative">
+            <RangeButton
+              active={isCustom}
+              onClick={() => setPickerOpen((prev) => !prev)}
+            >
+              {isCustom && fromParam && toParam
+                ? formatRangeLabel(fromParam, toParam)
+                : 'CUSTOM'}
+            </RangeButton>
+            <DateRangePicker
+              open={pickerOpen}
+              initial={
+                isCustom && fromParam && toParam
+                  ? { from: fromParam, to: toParam }
+                  : null
+              }
+              onApply={(r) => {
+                update((next) => {
+                  next.delete('range')
+                  next.set('from', r.from)
+                  next.set('to', r.to)
+                })
+                setPickerOpen(false)
+              }}
+              onCancel={() => setPickerOpen(false)}
+            />
+          </div>
         </ButtonGroup>
       </FilterColumn>
 

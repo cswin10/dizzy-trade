@@ -1,6 +1,10 @@
 import { twMerge } from 'tailwind-merge'
 
 import type { AnalyticsOverview } from '@/app/actions/analytics'
+import {
+  AnimatedStatValue,
+  type StatFormat,
+} from '@/components/shared/charts/AnimatedStatValue'
 import { TRADES_GOAL } from '@/lib/validations/analytics'
 
 export type AnalyticsStatsGridProps = {
@@ -9,6 +13,12 @@ export type AnalyticsStatsGridProps = {
 }
 
 type CardTone = 'positive' | 'negative' | 'neutral'
+
+const TONE_GLOW: Record<CardTone, string> = {
+  positive: 'text-positive [text-shadow:0_0_18px_rgba(74,222,128,0.45)]',
+  negative: 'text-negative [text-shadow:0_0_18px_rgba(248,113,113,0.4)]',
+  neutral: 'text-white [text-shadow:0_0_18px_rgba(59,130,255,0.4)]',
+}
 
 function StatLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -23,55 +33,18 @@ function StatLabel({ children }: { children: React.ReactNode }) {
   )
 }
 
-function StatValue({
-  value,
-  tone,
-  empty,
-}: {
-  value: string
-  tone: CardTone
-  empty: boolean
-}) {
-  if (empty) {
-    return (
-      <span className="font-mono text-3xl tabular-nums text-white/35">—</span>
-    )
-  }
-  const toneClass =
-    tone === 'positive'
-      ? 'text-positive'
-      : tone === 'negative'
-        ? 'text-negative'
-        : 'text-white'
-  const glow =
-    tone === 'positive'
-      ? '[text-shadow:0_0_18px_rgba(74,222,128,0.45)]'
-      : tone === 'negative'
-        ? '[text-shadow:0_0_18px_rgba(248,113,113,0.4)]'
-        : '[text-shadow:0_0_18px_rgba(59,130,255,0.4)]'
-  return (
-    <span
-      className={twMerge(
-        'font-mono text-3xl font-medium tabular-nums tracking-tight',
-        toneClass,
-        glow,
-      )}
-    >
-      {value}
-    </span>
-  )
-}
-
 function StatCard({
   label,
   value,
+  format,
   subtitle,
   tone = 'neutral',
   empty,
   progressPct,
 }: {
   label: string
-  value: string
+  value: number
+  format: StatFormat
   subtitle: string
   tone?: CardTone
   empty: boolean
@@ -80,14 +53,19 @@ function StatCard({
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-white/[0.06] bg-surface bg-panel-lit p-4">
       <StatLabel>{label}</StatLabel>
-      <StatValue value={value} tone={tone} empty={empty} />
+      <AnimatedStatValue
+        value={value}
+        format={format}
+        empty={empty}
+        className={empty ? undefined : TONE_GLOW[tone]}
+      />
       <span className="text-[11px] text-white/40">
         {empty ? 'No data yet' : subtitle}
       </span>
       {progressPct !== undefined ? (
         <div className="relative h-px w-full overflow-hidden bg-white/[0.06]">
           <div
-            className="absolute inset-y-0 left-0 bg-accent"
+            className="absolute inset-y-0 left-0 bg-accent transition-[width] duration-500 ease-out"
             style={{
               width: `${Math.min(100, Math.max(0, progressPct * 100))}%`,
               filter: 'drop-shadow(0 0 4px rgba(59,130,255,0.55))',
@@ -99,26 +77,11 @@ function StatCard({
   )
 }
 
-function formatGbp(value: number): string {
-  const sign = value < 0 ? '-' : value > 0 ? '+' : ''
-  return `${sign}£${Math.abs(value).toLocaleString('en-GB', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  })}`
-}
-
 export function AnalyticsStatsGrid({
   overview,
   hasTrades,
 }: AnalyticsStatsGridProps) {
   const empty = !hasTrades || overview.total_trades === 0
-  const winRatePct = empty ? '—' : `${(overview.win_rate * 100).toFixed(0)}%`
-  const avgR = empty
-    ? '—'
-    : `${overview.avg_r >= 0 ? '+' : ''}${overview.avg_r.toFixed(2)}R`
-  const totalTrades = empty ? '—' : `${overview.total_trades}`
-  const totalPnl = empty ? '—' : formatGbp(overview.total_pnl_gbp)
-  const daysActive = empty ? '—' : `${overview.days_active}`
 
   const winTone: CardTone = empty
     ? 'neutral'
@@ -141,24 +104,27 @@ export function AnalyticsStatsGrid({
         : 'neutral'
 
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+    <div className={twMerge('grid grid-cols-2 gap-3 md:grid-cols-5')}>
       <StatCard
         label="Win rate"
-        value={winRatePct}
+        value={overview.win_rate}
+        format="percent"
         tone={winTone}
         subtitle="Filtered window"
         empty={empty}
       />
       <StatCard
         label="Avg R"
-        value={avgR}
+        value={overview.avg_r}
+        format="r-multiple"
         tone={rTone}
         subtitle="Mean reward / risk"
         empty={empty}
       />
       <StatCard
         label="Total trades"
-        value={totalTrades}
+        value={overview.total_trades}
+        format="integer"
         subtitle={
           empty
             ? 'Goal: 50 trades'
@@ -169,14 +135,16 @@ export function AnalyticsStatsGrid({
       />
       <StatCard
         label="Total PnL"
-        value={totalPnl}
+        value={overview.total_pnl_gbp}
+        format="currency-gbp"
         tone={pnlTone}
         subtitle="Realised in window"
         empty={empty}
       />
       <StatCard
         label="Days active"
-        value={daysActive}
+        value={overview.days_active}
+        format="integer"
         subtitle="Distinct trading days"
         empty={empty}
       />
