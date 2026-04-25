@@ -26,7 +26,7 @@ export function Tabs({ tabs, defaultTabId, className }: TabsProps) {
     <div className={className}>
       <div
         role="tablist"
-        className="relative flex items-center gap-7 border-b border-white/[0.06]"
+        className="relative -mx-1 flex items-center gap-5 overflow-x-auto border-b border-white/[0.06] px-1 sm:gap-7"
       >
         {tabs.map((tab) => {
           const selected = tab.id === active

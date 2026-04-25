@@ -52,7 +52,7 @@ export function WinRateOverTimeChart({ data }: WinRateOverTimeChartProps) {
       <ResponsiveContainer width="100%" height={280}>
         <LineChart
           data={points}
-          margin={{ top: 12, right: 12, bottom: 0, left: 0 }}
+          margin={{ top: 12, right: 30, bottom: 0, left: 0 }}
         >
           <CartesianGrid stroke="rgba(255,255,255,0.05)" vertical={false} />
           <XAxis

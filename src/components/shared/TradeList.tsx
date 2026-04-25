@@ -231,8 +231,8 @@ export function TradeList({ trades, variant = 'full' }: TradeListProps) {
 
   if (variant === 'compact') {
     return (
-      <div className="overflow-hidden">
-        <table className="w-full">
+      <div className="-mx-3 overflow-x-auto sm:mx-0">
+        <table className="w-full min-w-[480px]">
           <thead>
             <tr className="text-left text-[10px] font-medium uppercase tracking-wider text-white/35">
               <th className="px-3 pb-2 font-medium">Date</th>
@@ -273,91 +273,93 @@ export function TradeList({ trades, variant = 'full' }: TradeListProps) {
   }
 
   return (
-    <div className="overflow-x-auto">
+    <div>
       {/* Desktop table */}
-      <table className="hidden w-full md:table">
-        <thead>
-          <tr className="text-left text-[10px] font-medium uppercase tracking-wider text-white/35">
-            <th className="px-3 pb-2 font-medium">Date</th>
-            <th className="px-3 pb-2 font-medium">Asset</th>
-            <th className="px-3 pb-2 font-medium">Direction</th>
-            <th className="px-3 pb-2 font-medium">Size</th>
-            <th className="px-3 pb-2 font-medium">Entry</th>
-            <th className="px-3 pb-2 font-medium">Exit</th>
-            <th className="px-3 pb-2 text-right font-medium">PnL</th>
-            <th className="px-3 pb-2 font-medium">Outcome</th>
-            <th className="px-3 pb-2 font-medium">Narrative</th>
-            <th className="px-3 pb-2" />
-          </tr>
-        </thead>
-        <tbody>
-          {trades.map((trade) => (
-            <Fragment key={trade.id}>
-              <tr
-                onClick={() => onRowClick(trade)}
-                className="cursor-pointer border-t border-white/[0.04] text-sm transition-colors duration-200 hover:bg-surface-2"
-              >
-                <td className="whitespace-nowrap px-3 py-3 text-white/55">
-                  {dateFormatter.format(new Date(trade.entry_at))}
-                </td>
-                <td className="px-3 py-3 font-medium text-white">
-                  <span className="inline-flex items-center gap-2">
-                    <span>{trade.asset_symbol}</span>
-                    <LiveStatusPill status={trade.live_status} />
-                  </span>
-                </td>
-                <td className="px-3 py-3">
-                  <DirectionBadge direction={trade.direction} />
-                </td>
-                <td className="px-3 py-3 text-white/80">
-                  <div className="flex flex-col">
-                    <span>{sizeFormat(trade.entry_size)}</span>
-                    {trade.risk_amount_gbp ? (
-                      <span className="text-[11px] text-white/40">
-                        Risk · £{trade.risk_amount_gbp}
-                      </span>
-                    ) : null}
-                  </div>
-                </td>
-                <td className="px-3 py-3 tabular-nums text-white/80">
-                  {priceFormat(trade.entry_price)}
-                </td>
-                <td className="px-3 py-3 tabular-nums text-white/80">
-                  {priceFormat(trade.exit_price)}
-                </td>
-                <td className="px-3 py-3 text-right">
-                  <PnlValue value={trade.pnl} />
-                </td>
-                <td className="px-3 py-3">
-                  <div className="flex flex-col gap-1">
-                    <OutcomeBadge outcome={trade.outcome} />
-                    {trade.analysis_lesson_tag ? (
-                      <LessonTagChip tag={trade.analysis_lesson_tag} />
-                    ) : null}
-                  </div>
-                </td>
-                <td className="px-3 py-3">
-                  <NarrativePill tag={trade.narrative_tag} />
-                </td>
-                <td className="px-3 py-3 text-right">
-                  <TradeRowActions trade={trade} />
-                </td>
-              </tr>
-              {trade.outcome !== 'open' ? (
-                <tr className="border-t-0">
-                  <td colSpan={10} className="px-3 pb-3 pt-0">
-                    <TradeAnalysis
-                      tradeId={trade.id}
-                      outcome={trade.outcome}
-                      analysis={tradeAnalysisSummary(trade)}
-                    />
+      <div className="hidden md:block md:overflow-x-auto">
+        <table className="hidden w-full min-w-[960px] md:table">
+          <thead>
+            <tr className="text-left text-[10px] font-medium uppercase tracking-wider text-white/35">
+              <th className="px-3 pb-2 font-medium">Date</th>
+              <th className="px-3 pb-2 font-medium">Asset</th>
+              <th className="px-3 pb-2 font-medium">Direction</th>
+              <th className="px-3 pb-2 font-medium">Size</th>
+              <th className="px-3 pb-2 font-medium">Entry</th>
+              <th className="px-3 pb-2 font-medium">Exit</th>
+              <th className="px-3 pb-2 text-right font-medium">PnL</th>
+              <th className="px-3 pb-2 font-medium">Outcome</th>
+              <th className="px-3 pb-2 font-medium">Narrative</th>
+              <th className="px-3 pb-2" />
+            </tr>
+          </thead>
+          <tbody>
+            {trades.map((trade) => (
+              <Fragment key={trade.id}>
+                <tr
+                  onClick={() => onRowClick(trade)}
+                  className="cursor-pointer border-t border-white/[0.04] text-sm transition-colors duration-200 hover:bg-surface-2"
+                >
+                  <td className="whitespace-nowrap px-3 py-3 text-white/55">
+                    {dateFormatter.format(new Date(trade.entry_at))}
+                  </td>
+                  <td className="px-3 py-3 font-medium text-white">
+                    <span className="inline-flex items-center gap-2">
+                      <span>{trade.asset_symbol}</span>
+                      <LiveStatusPill status={trade.live_status} />
+                    </span>
+                  </td>
+                  <td className="px-3 py-3">
+                    <DirectionBadge direction={trade.direction} />
+                  </td>
+                  <td className="px-3 py-3 text-white/80">
+                    <div className="flex flex-col">
+                      <span>{sizeFormat(trade.entry_size)}</span>
+                      {trade.risk_amount_gbp ? (
+                        <span className="text-[11px] text-white/40">
+                          Risk · £{trade.risk_amount_gbp}
+                        </span>
+                      ) : null}
+                    </div>
+                  </td>
+                  <td className="px-3 py-3 tabular-nums text-white/80">
+                    {priceFormat(trade.entry_price)}
+                  </td>
+                  <td className="px-3 py-3 tabular-nums text-white/80">
+                    {priceFormat(trade.exit_price)}
+                  </td>
+                  <td className="px-3 py-3 text-right">
+                    <PnlValue value={trade.pnl} />
+                  </td>
+                  <td className="px-3 py-3">
+                    <div className="flex flex-col gap-1">
+                      <OutcomeBadge outcome={trade.outcome} />
+                      {trade.analysis_lesson_tag ? (
+                        <LessonTagChip tag={trade.analysis_lesson_tag} />
+                      ) : null}
+                    </div>
+                  </td>
+                  <td className="px-3 py-3">
+                    <NarrativePill tag={trade.narrative_tag} />
+                  </td>
+                  <td className="px-3 py-3 text-right">
+                    <TradeRowActions trade={trade} />
                   </td>
                 </tr>
-              ) : null}
-            </Fragment>
-          ))}
-        </tbody>
-      </table>
+                {trade.outcome !== 'open' ? (
+                  <tr className="border-t-0">
+                    <td colSpan={10} className="px-3 pb-3 pt-0">
+                      <TradeAnalysis
+                        tradeId={trade.id}
+                        outcome={trade.outcome}
+                        analysis={tradeAnalysisSummary(trade)}
+                      />
+                    </td>
+                  </tr>
+                ) : null}
+              </Fragment>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       {/* Mobile stacked cards */}
       <div className="space-y-3 md:hidden">

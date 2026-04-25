@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
 
@@ -13,6 +13,13 @@ export const metadata: Metadata = {
   description: 'Dizzy Trade',
 }
 
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 5,
+  themeColor: '#0A0B0E',
+}
+
 export default function RootLayout({
   children,
 }: {
@@ -20,7 +27,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en-GB" className={inter.variable}>
-      <body className="min-h-screen font-sans text-white antialiased">
+      <body className="min-h-screen overflow-x-hidden font-sans text-white antialiased">
         {children}
       </body>
     </html>

@@ -190,7 +190,7 @@ export default async function DashboardPage() {
         <Panel
           title="Open positions"
           variant="compact"
-          className="col-span-6 md:col-span-3"
+          className="col-span-12 md:col-span-3"
         >
           <div className="flex flex-col gap-1.5">
             <MetricLabel>Count</MetricLabel>
@@ -237,23 +237,9 @@ export default async function DashboardPage() {
         </Panel>
 
         <Panel
-          title="Watchlist"
-          variant="compact"
-          className="col-span-6 md:col-span-3"
-        >
-          <div className="flex flex-col gap-1.5">
-            <MetricLabel>Tracked</MetricLabel>
-            <span className="text-3xl font-medium tracking-tight text-white/90">
-              0
-            </span>
-            <span className="text-xs text-white/45">0 narratives</span>
-          </div>
-        </Panel>
-
-        <Panel
           title="Rules"
           variant="compact"
-          className="col-span-12 md:col-span-6"
+          className="col-span-12 md:col-span-3"
         >
           <div className="flex flex-col gap-2">
             <div className="flex items-center gap-8">

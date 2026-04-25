@@ -87,9 +87,9 @@ export function HyperliquidSettings({
     <Panel title="Hyperliquid connection">
       {address && !editing ? (
         <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex flex-col gap-1">
-              <span className="font-mono text-sm text-white/85">
+          <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+            <div className="flex min-w-0 flex-col gap-1">
+              <span className="truncate font-mono text-sm text-white/85">
                 {truncate(address)}
               </span>
               <span className="text-xs text-white/45">
@@ -99,7 +99,7 @@ export function HyperliquidSettings({
                   : ' · No syncs yet'}
               </span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
                 onClick={() => {

@@ -5,15 +5,15 @@ import { twMerge } from 'tailwind-merge'
 type Variant = 'default' | 'compact' | 'hero'
 
 const headerPadding: Record<Variant, string> = {
-  default: 'px-5 pb-0 pt-4',
-  compact: 'px-4 pb-0 pt-3',
-  hero: 'px-6 pb-0 pt-5',
+  default: 'px-4 pb-0 pt-3.5 sm:px-5 sm:pt-4',
+  compact: 'px-3 pb-0 pt-3 sm:px-4',
+  hero: 'px-4 pb-0 pt-4 sm:px-6 sm:pt-5',
 }
 
 const bodyPadding: Record<Variant, string> = {
-  default: 'px-5 py-4',
-  compact: 'px-4 py-3',
-  hero: 'px-6 py-5',
+  default: 'px-4 py-3.5 sm:px-5 sm:py-4',
+  compact: 'px-3 py-3 sm:px-4',
+  hero: 'px-4 py-4 sm:px-6 sm:py-5',
 }
 
 export type PanelProps = {
