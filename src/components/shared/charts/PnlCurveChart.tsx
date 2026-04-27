@@ -45,7 +45,7 @@ export function PnlCurveChart({ data }: PnlCurveChartProps) {
       <ResponsiveContainer width="100%" height={280}>
         <AreaChart
           data={data}
-          margin={{ top: 12, right: 12, bottom: 0, left: 0 }}
+          margin={{ top: 12, right: 6, bottom: 0, left: 0 }}
         >
           <defs>
             <linearGradient id="dt-pnl-gradient" x1="0" y1="0" x2="0" y2="1">
@@ -78,7 +78,7 @@ export function PnlCurveChart({ data }: PnlCurveChartProps) {
             stroke="rgba(255,255,255,0.1)"
             tickLine={false}
             axisLine={false}
-            width={56}
+            width={48}
           />
           <ReferenceLine
             y={0}

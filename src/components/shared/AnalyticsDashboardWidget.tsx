@@ -55,7 +55,7 @@ export function AnalyticsDashboardWidget({
         </p>
       ) : (
         <div className="flex flex-col gap-3">
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-3 gap-2 sm:gap-4">
             <Stat
               label="Win rate"
               value={`${(overview.win_rate * 100).toFixed(0)}%`}
@@ -111,7 +111,7 @@ function Stat({
       </span>
       <span
         className={twMerge(
-          'font-mono text-2xl font-medium tabular-nums',
+          'font-mono text-lg font-medium tabular-nums sm:text-2xl',
           tone === 'positive' &&
             'text-positive [text-shadow:0_0_14px_rgba(74,222,128,0.45)]',
           tone === 'negative' &&

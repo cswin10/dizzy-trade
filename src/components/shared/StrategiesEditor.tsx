@@ -131,7 +131,7 @@ export function StrategiesEditor({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
         <p className="text-xs text-white/45">
           One strategy can be active at a time. Activating a strategy
           deactivates any other.
@@ -139,7 +139,7 @@ export function StrategiesEditor({
         <Button
           type="button"
           onClick={() => setCreating(true)}
-          className="w-auto px-3 text-xs"
+          className="w-full px-3 text-xs sm:w-auto"
         >
           Add strategy
         </Button>
@@ -274,7 +274,7 @@ function StrategyPanel({
 
       {error ? <p className="mt-3 text-xs text-negative">{error}</p> : null}
 
-      <div className="mt-5 flex items-center justify-between">
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
         <button
           type="button"
           onClick={remove}
@@ -287,7 +287,7 @@ function StrategyPanel({
           type="button"
           onClick={save}
           disabled={pending || !dirty}
-          className="w-auto px-4"
+          className="w-full px-4 sm:w-auto"
         >
           {pending ? 'Saving' : 'Save changes'}
         </Button>

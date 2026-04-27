@@ -39,7 +39,7 @@ export function ActivityTabs({
     <div>
       <div
         role="tablist"
-        className="flex items-center gap-6 border-b border-white/[0.04] pb-3"
+        className="-mx-1 flex items-center gap-5 overflow-x-auto border-b border-white/[0.04] px-1 pb-3 sm:gap-6"
       >
         {TABS.map((tab) => {
           const selected = tab.id === active

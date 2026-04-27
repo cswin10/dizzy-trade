@@ -275,8 +275,8 @@ function AlertCard({ alert }: { alert: AlertRow }) {
                 />
               ) : null}
             </div>
-            <div className="flex items-baseline gap-3">
-              <span className="text-2xl font-medium tracking-tight text-white">
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <span className="text-xl font-medium tracking-tight text-white sm:text-2xl">
                 {alert.symbol}
               </span>
               <span className="text-xs text-white/45">
@@ -406,7 +406,7 @@ function AlertCard({ alert }: { alert: AlertRow }) {
                   thesis: formatThesis(alert, frameworkLabel),
                 })
               }
-              className="w-auto px-4"
+              className="w-full px-4 sm:w-auto"
             >
               {expired ? 'Expired' : 'Open trade from alert'}
             </Button>
