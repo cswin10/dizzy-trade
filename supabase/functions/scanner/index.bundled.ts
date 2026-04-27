@@ -1,5 +1,5 @@
 // AUTO-GENERATED. Do not edit. Run `npm run bundle:scanner` to regenerate.
-// Generated: 2026-04-25T20:22:48.654Z
+// Generated: 2026-04-27T14:59:33.775Z
 //
 // Source files (in dependency order):
 //   supabase/functions/_shared/hyperliquid.ts
