@@ -13,6 +13,15 @@
     background: transparent;
   }
 
+  /* Native <option> elements live outside the page DOM in most browsers
+     and inherit the white text colour we set on <select>, which makes
+     the dropdown list white-on-white until hover. Force a dark
+     background and light text so the options read at rest too. */
+  option {
+    background-color: #14161e;
+    color: #ffffff;
+  }
+
   /* Ambient accent glow anchored to the top-right of the viewport. Sits
      behind all content so it reads as atmosphere rather than a UI element. */
   body::before {
