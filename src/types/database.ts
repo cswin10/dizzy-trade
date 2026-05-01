@@ -583,6 +583,264 @@ export type Database = {
         }
         Relationships: []
       }
+      backtest_runs: {
+        Row: {
+          id: string
+          tenant_id: string
+          name: string
+          created_at: string | null
+          framework_id: string
+          framework_thresholds: Record<string, number>
+          timeframe: string
+          pairs: string[]
+          risk_amount_gbp: number
+          min_rr: number
+          max_concurrent_positions: number
+          max_daily_loss_gbp: number | null
+          max_consecutive_losers: number | null
+          date_range_start: string
+          date_range_end: string
+          slippage_pct: number
+          maker_fee_pct: number
+          taker_fee_pct: number
+          assume_taker: boolean
+          enable_train_test_split: boolean
+          train_split_pct: number
+          status: 'pending' | 'running' | 'completed' | 'failed'
+          error_message: string | null
+          run_started_at: string | null
+          run_completed_at: string | null
+          total_signals: number | null
+          total_trades: number | null
+          wins: number | null
+          losses: number | null
+          breakevens: number | null
+          win_rate: number | null
+          avg_r: number | null
+          total_pnl_gbp: number | null
+          max_drawdown_gbp: number | null
+          max_drawdown_pct: number | null
+          sharpe_ratio: number | null
+          longest_losing_streak: number | null
+          expectancy_per_trade_gbp: number | null
+          train_metrics: Record<string, unknown> | null
+          test_metrics: Record<string, unknown> | null
+          overfit_warning_triggered: boolean | null
+          gbp_usd_rate_used: number | null
+        }
+        Insert: {
+          id?: string
+          tenant_id: string
+          name: string
+          created_at?: string | null
+          framework_id: string
+          framework_thresholds: Record<string, number>
+          timeframe: string
+          pairs: string[]
+          risk_amount_gbp: number
+          min_rr: number
+          max_concurrent_positions: number
+          max_daily_loss_gbp?: number | null
+          max_consecutive_losers?: number | null
+          date_range_start: string
+          date_range_end: string
+          slippage_pct?: number
+          maker_fee_pct?: number
+          taker_fee_pct?: number
+          assume_taker?: boolean
+          enable_train_test_split?: boolean
+          train_split_pct?: number
+          status?: 'pending' | 'running' | 'completed' | 'failed'
+          error_message?: string | null
+          run_started_at?: string | null
+          run_completed_at?: string | null
+          total_signals?: number | null
+          total_trades?: number | null
+          wins?: number | null
+          losses?: number | null
+          breakevens?: number | null
+          win_rate?: number | null
+          avg_r?: number | null
+          total_pnl_gbp?: number | null
+          max_drawdown_gbp?: number | null
+          max_drawdown_pct?: number | null
+          sharpe_ratio?: number | null
+          longest_losing_streak?: number | null
+          expectancy_per_trade_gbp?: number | null
+          train_metrics?: Record<string, unknown> | null
+          test_metrics?: Record<string, unknown> | null
+          overfit_warning_triggered?: boolean | null
+          gbp_usd_rate_used?: number | null
+        }
+        Update: {
+          id?: string
+          tenant_id?: string
+          name?: string
+          created_at?: string | null
+          framework_id?: string
+          framework_thresholds?: Record<string, number>
+          timeframe?: string
+          pairs?: string[]
+          risk_amount_gbp?: number
+          min_rr?: number
+          max_concurrent_positions?: number
+          max_daily_loss_gbp?: number | null
+          max_consecutive_losers?: number | null
+          date_range_start?: string
+          date_range_end?: string
+          slippage_pct?: number
+          maker_fee_pct?: number
+          taker_fee_pct?: number
+          assume_taker?: boolean
+          enable_train_test_split?: boolean
+          train_split_pct?: number
+          status?: 'pending' | 'running' | 'completed' | 'failed'
+          error_message?: string | null
+          run_started_at?: string | null
+          run_completed_at?: string | null
+          total_signals?: number | null
+          total_trades?: number | null
+          wins?: number | null
+          losses?: number | null
+          breakevens?: number | null
+          win_rate?: number | null
+          avg_r?: number | null
+          total_pnl_gbp?: number | null
+          max_drawdown_gbp?: number | null
+          max_drawdown_pct?: number | null
+          sharpe_ratio?: number | null
+          longest_losing_streak?: number | null
+          expectancy_per_trade_gbp?: number | null
+          train_metrics?: Record<string, unknown> | null
+          test_metrics?: Record<string, unknown> | null
+          overfit_warning_triggered?: boolean | null
+          gbp_usd_rate_used?: number | null
+        }
+        Relationships: []
+      }
+      backtest_trades: {
+        Row: {
+          id: string
+          backtest_run_id: string
+          pair: string
+          direction: 'long' | 'short'
+          entry_at: string
+          entry_price: number
+          stop_price: number
+          target_price: number
+          exit_at: string | null
+          exit_price: number | null
+          exit_reason:
+            | 'target_hit'
+            | 'stop_hit'
+            | 'timeout'
+            | 'rules_blocked'
+            | 'open_at_period_end'
+            | null
+          size_coin: number
+          size_usd: number
+          pnl_usd: number | null
+          pnl_gbp: number | null
+          r_multiple: number | null
+          outcome: 'win' | 'loss' | 'breakeven' | null
+          in_train_period: boolean | null
+          conditions_at_signal: Record<string, unknown> | null
+          gbp_usd_rate_used: number | null
+        }
+        Insert: {
+          id?: string
+          backtest_run_id: string
+          pair: string
+          direction: 'long' | 'short'
+          entry_at: string
+          entry_price: number
+          stop_price: number
+          target_price: number
+          exit_at?: string | null
+          exit_price?: number | null
+          exit_reason?:
+            | 'target_hit'
+            | 'stop_hit'
+            | 'timeout'
+            | 'rules_blocked'
+            | 'open_at_period_end'
+            | null
+          size_coin: number
+          size_usd: number
+          pnl_usd?: number | null
+          pnl_gbp?: number | null
+          r_multiple?: number | null
+          outcome?: 'win' | 'loss' | 'breakeven' | null
+          in_train_period?: boolean | null
+          conditions_at_signal?: Record<string, unknown> | null
+          gbp_usd_rate_used?: number | null
+        }
+        Update: {
+          id?: string
+          backtest_run_id?: string
+          pair?: string
+          direction?: 'long' | 'short'
+          entry_at?: string
+          entry_price?: number
+          stop_price?: number
+          target_price?: number
+          exit_at?: string | null
+          exit_price?: number | null
+          exit_reason?:
+            | 'target_hit'
+            | 'stop_hit'
+            | 'timeout'
+            | 'rules_blocked'
+            | 'open_at_period_end'
+            | null
+          size_coin?: number
+          size_usd?: number
+          pnl_usd?: number | null
+          pnl_gbp?: number | null
+          r_multiple?: number | null
+          outcome?: 'win' | 'loss' | 'breakeven' | null
+          in_train_period?: boolean | null
+          conditions_at_signal?: Record<string, unknown> | null
+          gbp_usd_rate_used?: number | null
+        }
+        Relationships: []
+      }
+      backtest_candles: {
+        Row: {
+          id: string
+          pair: string
+          timeframe: string
+          candle_open_at: string
+          open: number
+          high: number
+          low: number
+          close: number
+          volume: number
+        }
+        Insert: {
+          id?: string
+          pair: string
+          timeframe: string
+          candle_open_at: string
+          open: number
+          high: number
+          low: number
+          close: number
+          volume: number
+        }
+        Update: {
+          id?: string
+          pair?: string
+          timeframe?: string
+          candle_open_at?: string
+          open?: number
+          high?: number
+          low?: number
+          close?: number
+          volume?: number
+        }
+        Relationships: []
+      }
     }
     Views: {
       daily_pnl: {
