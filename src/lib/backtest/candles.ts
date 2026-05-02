@@ -234,6 +234,30 @@ async function writeCandlesToCache(candles: BacktestCandle[]): Promise<void> {
 // candles around exchange downtime), refetch the entire window. This
 // avoids the complexity of stitching exact gap ranges and is fast
 // enough in practice given Hyperliquid's per-call cap.
+// In-flight dedupe map. When several runBacktest invocations execute
+// in parallel inside the same Node process (e.g. a sweep batch fan-
+// out via Promise.all), they all call ensureCandles for the same
+// (pair, timeframe, range) tuple. Without this map each one would
+// independently miss the cache, fire its own Hyperliquid request,
+// and trip the rate limit. With it, the first caller fires the
+// request and the others await its promise and share the result.
+//
+// The map is keyed by the exact arguments, scoped to the lifetime
+// of one process. It is intentionally not persistent: a fresh
+// Vercel function invocation starts with an empty map, which is
+// fine because the on-disk Postgres cache already covers the
+// cross-process case.
+const inFlight = new Map<string, Promise<BacktestCandle[]>>()
+
+function inFlightKey(
+  pair: string,
+  timeframe: BacktestTimeframe,
+  startAt: Date,
+  endAt: Date,
+): string {
+  return `${pair}|${timeframe}|${startAt.getTime()}|${endAt.getTime()}`
+}
+
 export async function ensureCandles(
   pair: string,
   timeframe: BacktestTimeframe,
@@ -243,31 +267,46 @@ export async function ensureCandles(
   const tfMs = TIMEFRAME_MS[timeframe]
   if (!tfMs) throw new Error(`Unsupported timeframe: ${timeframe}`)
 
-  const cached = await readCachedCandles(pair, timeframe, startAt, endAt)
-  const expected = Math.floor((endAt.getTime() - startAt.getTime()) / tfMs)
-  // 90% threshold absorbs the occasional gap (exchange downtime,
-  // newly listed pair) without forcing a refetch every time.
-  if (cached.length >= expected * 0.9 && cached.length > 0) {
-    return cached
-  }
+  const key = inFlightKey(pair, timeframe, startAt, endAt)
+  const existing = inFlight.get(key)
+  if (existing) return existing
 
-  const fetched = await fetchAllChunks(
-    pair,
-    timeframe,
-    startAt.getTime(),
-    endAt.getTime(),
-  )
-  if (fetched.length === 0) return cached
-
-  await writeCandlesToCache(fetched)
-
-  const cachedKeys = new Set(cached.map((c) => c.candle_open_at.getTime()))
-  const merged = [...cached]
-  for (const candle of fetched) {
-    if (!cachedKeys.has(candle.candle_open_at.getTime())) {
-      merged.push(candle)
+  const promise = (async () => {
+    const cached = await readCachedCandles(pair, timeframe, startAt, endAt)
+    const expected = Math.floor((endAt.getTime() - startAt.getTime()) / tfMs)
+    // 90% threshold absorbs the occasional gap (exchange downtime,
+    // newly listed pair) without forcing a refetch every time.
+    if (cached.length >= expected * 0.9 && cached.length > 0) {
+      return cached
     }
+
+    const fetched = await fetchAllChunks(
+      pair,
+      timeframe,
+      startAt.getTime(),
+      endAt.getTime(),
+    )
+    if (fetched.length === 0) return cached
+
+    await writeCandlesToCache(fetched)
+
+    const cachedKeys = new Set(cached.map((c) => c.candle_open_at.getTime()))
+    const merged = [...cached]
+    for (const candle of fetched) {
+      if (!cachedKeys.has(candle.candle_open_at.getTime())) {
+        merged.push(candle)
+      }
+    }
+    merged.sort(
+      (a, b) => a.candle_open_at.getTime() - b.candle_open_at.getTime(),
+    )
+    return merged
+  })()
+
+  inFlight.set(key, promise)
+  try {
+    return await promise
+  } finally {
+    inFlight.delete(key)
   }
-  merged.sort((a, b) => a.candle_open_at.getTime() - b.candle_open_at.getTime())
-  return merged
 }
