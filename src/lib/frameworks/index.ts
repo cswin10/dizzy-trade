@@ -2,6 +2,7 @@ import type { Framework } from './types'
 import { liquidationHuntFramework } from './liquidation_hunt'
 import { meanReversionFramework } from './mean_reversion'
 import { narrativeBreakoutFramework } from './narrative_breakout'
+import { simpleRsiFramework } from './simple_rsi'
 
 export type { Framework, FrameworkResult, MarketSnapshot } from './types'
 
@@ -13,10 +14,12 @@ export const FRAMEWORKS: Map<string, Framework> = new Map([
   [narrativeBreakoutFramework.id, narrativeBreakoutFramework],
   [meanReversionFramework.id, meanReversionFramework],
   [liquidationHuntFramework.id, liquidationHuntFramework],
+  [simpleRsiFramework.id, simpleRsiFramework],
 ])
 
 export const FRAMEWORK_ORDER = [
   'mean_reversion_v1',
   'narrative_breakout_v1',
   'liquidation_hunt_v1',
+  'simple_rsi_v1',
 ] as const
