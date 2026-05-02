@@ -22,7 +22,17 @@ const NAV_ITEMS: NavItem[] = [
 function isActive(pathname: string | null, href: string): boolean {
   if (!pathname) return false
   if (pathname === href) return true
-  return pathname.startsWith(`${href}/`)
+  if (!pathname.startsWith(`${href}/`)) return false
+  // Defer to a more-specific nav item if one also matches this path.
+  // /settings/strategies should light Strategies, not Settings, even
+  // though both prefixes apply.
+  const moreSpecific = NAV_ITEMS.find(
+    (item) =>
+      item.href !== href &&
+      item.href.startsWith(`${href}/`) &&
+      (pathname === item.href || pathname.startsWith(`${item.href}/`)),
+  )
+  return !moreSpecific
 }
 
 export type TopNavProps = {
