@@ -13,13 +13,30 @@
     background: transparent;
   }
 
-  /* Native <option> elements live outside the page DOM in most browsers
-     and inherit the white text colour we set on <select>, which makes
-     the dropdown list white-on-white until hover. Force a dark
-     background and light text so the options read at rest too. */
+  /* Native form controls flash with browser-default styling before
+     Tailwind utility classes are applied during hydration, which
+     reads as a brief white box on every <select>. Pin background
+     and colour at the base layer so the very first paint already
+     matches the dark theme.
+     <option> and <optgroup> live outside the page DOM in most
+     browsers and inherit none of the parent <select>'s utility
+     classes; style them explicitly so the dropdown list and any
+     group headers are not bright white gaps. */
+  select {
+    background-color: transparent;
+    color: #ffffff;
+  }
+
   option {
     background-color: #14161e;
     color: #ffffff;
+  }
+
+  optgroup {
+    background-color: #14161e;
+    color: rgba(255, 255, 255, 0.55);
+    font-style: normal;
+    font-weight: 600;
   }
 
   /* Ambient accent glow anchored to the top-right of the viewport. Sits

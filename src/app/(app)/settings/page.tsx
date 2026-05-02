@@ -7,6 +7,8 @@ import {
   NarrativeTagsEditor,
   type NarrativeTagRow,
 } from '@/components/shared/NarrativeTagsEditor'
+import { RulesSettingsTab } from '@/components/shared/RulesSettingsTab'
+import type { RulesLiveState } from '@/components/shared/RulesStatusPanel'
 import {
   StrategiesEditor,
   type StrategyRow,
@@ -19,6 +21,66 @@ import { Tabs } from '@/components/ui/Tabs'
 import { createClient } from '@/lib/supabase/server'
 import type { Timeframe } from '@/lib/validations/strategy'
 
+function startOfTodayUtcIso(): string {
+  const d = new Date()
+  d.setUTCHours(0, 0, 0, 0)
+  return d.toISOString()
+}
+
+async function loadRulesLiveState(
+  supabase: ReturnType<typeof createClient>,
+  tenantId: string,
+): Promise<RulesLiveState> {
+  const [openRes, pnlRes, lastLossRes, recentRes] = await Promise.all([
+    supabase
+      .from('trades')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
+      .eq('outcome', 'open'),
+    supabase
+      .from('trades')
+      .select('pnl')
+      .eq('tenant_id', tenantId)
+      .in('outcome', ['win', 'loss', 'breakeven'])
+      .gte('exit_at', startOfTodayUtcIso()),
+    supabase
+      .from('trades')
+      .select('exit_at')
+      .eq('tenant_id', tenantId)
+      .eq('outcome', 'loss')
+      .order('exit_at', { ascending: false })
+      .limit(1),
+    supabase
+      .from('trades')
+      .select('outcome, exit_at')
+      .eq('tenant_id', tenantId)
+      .in('outcome', ['win', 'loss', 'breakeven'])
+      .order('exit_at', { ascending: false })
+      .limit(20),
+  ])
+
+  let today_realised_pnl_gbp = 0
+  for (const row of pnlRes.data ?? []) {
+    const pnl = row.pnl
+    if (typeof pnl === 'number' && Number.isFinite(pnl)) {
+      today_realised_pnl_gbp += pnl
+    }
+  }
+
+  let consecutive_losers_count = 0
+  for (const row of recentRes.data ?? []) {
+    if (row.outcome === 'loss') consecutive_losers_count++
+    else break
+  }
+
+  return {
+    open_positions_count: openRes.count ?? 0,
+    today_realised_pnl_gbp,
+    consecutive_losers_count,
+    last_loss_at: lastLossRes.data?.[0]?.exit_at ?? null,
+  }
+}
+
 export const metadata = {
   title: 'Settings · Dizzy Trade',
 }
@@ -29,6 +91,13 @@ export default async function SettingsPage() {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) redirect('/sign-in')
+
+  const { data: memberships } = await supabase
+    .from('tenant_members')
+    .select('tenant_id')
+    .eq('user_id', user.id)
+    .limit(1)
+  const tenantId = memberships?.[0]?.tenant_id ?? null
 
   const [
     { data: thresholds },
@@ -108,6 +177,16 @@ export default async function SettingsPage() {
   const hyperliquidLastSynced =
     (lastSyncRow?.[0]?.last_synced_at as string | undefined) ?? null
 
+  const activeStrategy = strategyRows.find((row) => row.is_active) ?? null
+  const rulesLiveState: RulesLiveState = tenantId
+    ? await loadRulesLiveState(supabase, tenantId)
+    : {
+        open_positions_count: 0,
+        today_realised_pnl_gbp: 0,
+        consecutive_losers_count: 0,
+        last_loss_at: null,
+      }
+
   return (
     <PageContainer>
       <PageHeader title="Settings" subtitle="Configure your trading system" />
@@ -126,6 +205,30 @@ export default async function SettingsPage() {
               <StrategiesEditor
                 initialStrategies={strategyRows}
                 universeSymbols={universeSymbols}
+              />
+            ),
+          },
+          {
+            id: 'rules',
+            label: 'Rules',
+            content: (
+              <RulesSettingsTab
+                tenantId={tenantId}
+                strategy={
+                  activeStrategy
+                    ? {
+                        name: activeStrategy.name,
+                        max_concurrent_positions:
+                          activeStrategy.max_concurrent_positions,
+                        max_daily_loss_gbp: activeStrategy.max_daily_loss_gbp,
+                        risk_amount_gbp: activeStrategy.risk_amount_gbp,
+                        min_rr: activeStrategy.min_rr,
+                        max_consecutive_losers:
+                          activeStrategy.max_consecutive_losers,
+                      }
+                    : null
+                }
+                initialState={rulesLiveState}
               />
             ),
           },
