@@ -1,5 +1,12 @@
 'use server'
 
+// Side-effect import: populates the strategy condition and exit-
+// rule registries at module load. Without this, validate/evaluate
+// would only know about the four built-in rule schemas registered
+// inside schema.ts and would reject anything from the condition
+// library.
+import '@/lib/strategies/register'
+
 import { revalidatePath } from 'next/cache'
 
 import {

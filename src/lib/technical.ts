@@ -228,3 +228,193 @@ export function candleClosePosition(c: Candle): number {
   if (range <= 0) return 0.5
   return (c.c - c.l) / range
 }
+
+/**
+ * Exponential moving average of the last `period` values, computed
+ * as the standard recursive EMA (SMA for the first window, then
+ * smoothed). Returns NaN if there are fewer than `period` samples.
+ */
+export function ema(values: number[], period: number): number {
+  if (period <= 0 || values.length < period) return NaN
+  const k = 2 / (period + 1)
+  let avg = 0
+  for (let i = 0; i < period; i++) avg += values[i]!
+  avg /= period
+  for (let i = period; i < values.length; i++) {
+    avg = values[i]! * k + avg * (1 - k)
+  }
+  return avg
+}
+
+/**
+ * Full EMA series, one value per input bar starting at index
+ * `period - 1`. Useful when callers need the previous value for
+ * crossover detection.
+ */
+export function emaSeries(values: number[], period: number): number[] {
+  const out: number[] = []
+  if (period <= 0 || values.length < period) return out
+  const k = 2 / (period + 1)
+  let avg = 0
+  for (let i = 0; i < period; i++) avg += values[i]!
+  avg /= period
+  out.push(avg)
+  for (let i = period; i < values.length; i++) {
+    avg = values[i]! * k + avg * (1 - k)
+    out.push(avg)
+  }
+  return out
+}
+
+/**
+ * Average true range. True range for each bar is
+ * max(high - low, |high - prev_close|, |low - prev_close|); ATR is
+ * a Wilder-smoothed average over `period` bars. Returns NaN if
+ * there is not enough history.
+ */
+export function atr(candles: Candle[], period: number): number {
+  if (period <= 0 || candles.length <= period) return NaN
+  const trueRanges: number[] = []
+  for (let i = 1; i < candles.length; i++) {
+    const cur = candles[i]!
+    const prev = candles[i - 1]!
+    const tr = Math.max(
+      cur.h - cur.l,
+      Math.abs(cur.h - prev.c),
+      Math.abs(cur.l - prev.c),
+    )
+    trueRanges.push(tr)
+  }
+  let avg = 0
+  for (let i = 0; i < period; i++) avg += trueRanges[i]!
+  avg /= period
+  for (let i = period; i < trueRanges.length; i++) {
+    avg = (avg * (period - 1) + trueRanges[i]!) / period
+  }
+  return avg
+}
+
+/**
+ * ATR series, one value per bar starting at index `period`. Used
+ * by the atr_ratio condition to compute an ATR average over a
+ * trailing window.
+ */
+export function atrSeries(candles: Candle[], period: number): number[] {
+  const out: number[] = []
+  if (period <= 0 || candles.length <= period) return out
+  const trueRanges: number[] = []
+  for (let i = 1; i < candles.length; i++) {
+    const cur = candles[i]!
+    const prev = candles[i - 1]!
+    trueRanges.push(
+      Math.max(
+        cur.h - cur.l,
+        Math.abs(cur.h - prev.c),
+        Math.abs(cur.l - prev.c),
+      ),
+    )
+  }
+  let avg = 0
+  for (let i = 0; i < period; i++) avg += trueRanges[i]!
+  avg /= period
+  out.push(avg)
+  for (let i = period; i < trueRanges.length; i++) {
+    avg = (avg * (period - 1) + trueRanges[i]!) / period
+    out.push(avg)
+  }
+  return out
+}
+
+/**
+ * Bollinger bands at the last bar: middle = SMA(period), upper
+ * and lower offset by `stdDevMultiple` standard deviations of the
+ * last `period` closes. Returns null if there is not enough data.
+ */
+export function bollinger(
+  closes: number[],
+  period: number,
+  stdDevMultiple: number,
+): { upper: number; middle: number; lower: number } | null {
+  if (period <= 0 || closes.length < period) return null
+  const window = closes.slice(closes.length - period)
+  const mean = window.reduce((a, b) => a + b, 0) / period
+  const variance = window.reduce((sum, x) => sum + (x - mean) ** 2, 0) / period
+  const sd = Math.sqrt(variance)
+  return {
+    upper: mean + sd * stdDevMultiple,
+    middle: mean,
+    lower: mean - sd * stdDevMultiple,
+  }
+}
+
+/**
+ * Stochastic %K and %D. %K is the position of the close inside
+ * the high/low range over `kPeriod`, smoothed by SMA over `smooth`.
+ * %D is SMA of %K over `dPeriod`. Returns the latest values plus
+ * the previous values so callers can detect crossings.
+ */
+export function stochastic(
+  candles: Candle[],
+  kPeriod: number,
+  dPeriod: number,
+  smooth: number,
+): { k: number; d: number; kPrev: number; dPrev: number } | null {
+  if (kPeriod <= 0 || dPeriod <= 0 || smooth <= 0) return null
+  if (candles.length < kPeriod + smooth + dPeriod) return null
+
+  const rawK: number[] = []
+  for (let i = kPeriod - 1; i < candles.length; i++) {
+    let highest = -Infinity
+    let lowest = Infinity
+    for (let j = i - kPeriod + 1; j <= i; j++) {
+      const c = candles[j]!
+      if (c.h > highest) highest = c.h
+      if (c.l < lowest) lowest = c.l
+    }
+    const range = highest - lowest
+    const close = candles[i]!.c
+    rawK.push(range === 0 ? 50 : ((close - lowest) / range) * 100)
+  }
+
+  const smoothedK: number[] = []
+  for (let i = smooth - 1; i < rawK.length; i++) {
+    let s = 0
+    for (let j = i - smooth + 1; j <= i; j++) s += rawK[j]!
+    smoothedK.push(s / smooth)
+  }
+
+  const dValues: number[] = []
+  for (let i = dPeriod - 1; i < smoothedK.length; i++) {
+    let s = 0
+    for (let j = i - dPeriod + 1; j <= i; j++) s += smoothedK[j]!
+    dValues.push(s / dPeriod)
+  }
+
+  if (smoothedK.length < 2 || dValues.length < 2) return null
+  return {
+    k: smoothedK[smoothedK.length - 1]!,
+    kPrev: smoothedK[smoothedK.length - 2]!,
+    d: dValues[dValues.length - 1]!,
+    dPrev: dValues[dValues.length - 2]!,
+  }
+}
+
+/**
+ * Williams %R, a momentum oscillator scaled to [-100, 0].
+ * Closer to 0 means closer to the recent high (overbought);
+ * closer to -100 means closer to the recent low (oversold).
+ */
+export function williamsR(candles: Candle[], period: number): number {
+  if (period <= 0 || candles.length < period) return NaN
+  let highest = -Infinity
+  let lowest = Infinity
+  for (let i = candles.length - period; i < candles.length; i++) {
+    const c = candles[i]!
+    if (c.h > highest) highest = c.h
+    if (c.l < lowest) lowest = c.l
+  }
+  const range = highest - lowest
+  if (range === 0) return -50
+  const close = candles[candles.length - 1]!.c
+  return ((highest - close) / range) * -100
+}
