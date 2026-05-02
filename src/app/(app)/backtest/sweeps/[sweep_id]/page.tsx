@@ -168,7 +168,7 @@ export default async function SweepResultPage({
             </span>
             <Link href="/backtest/sweeps" className="contents">
               <Button variant="ghost" className="w-auto">
-                Back
+                Back to sweeps
               </Button>
             </Link>
           </div>
@@ -226,7 +226,7 @@ export default async function SweepResultPage({
           <h2 className="mb-4 text-[11px] font-medium uppercase tracking-wider text-white/55">
             Results
           </h2>
-          <SweepResultsTable rows={rows} />
+          <SweepResultsTable rows={rows} sweepId={sweep.id} />
         </section>
 
         {heatmapKeys && heatmapCells.length > 0 ? (

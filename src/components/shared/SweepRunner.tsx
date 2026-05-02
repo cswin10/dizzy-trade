@@ -10,6 +10,8 @@ import {
   processNextSweepBatchAction,
 } from '@/app/actions/backtest-sweeps'
 
+import { ConfirmDialog } from './ConfirmDialog'
+
 const POLL_INTERVAL_MS = 3000
 const BATCH_SIZE = 5
 
@@ -42,6 +44,7 @@ export function SweepRunner({
   const router = useRouter()
   const inFlight = useRef(false)
   const [cancelling, setCancelling] = useState(false)
+  const [confirmCancelOpen, setConfirmCancelOpen] = useState(false)
 
   const isActive = status === 'pending' || status === 'running'
   const remaining =
@@ -78,12 +81,11 @@ export function SweepRunner({
     return () => clearInterval(interval)
   }, [sweepId, isActive, remaining, router])
 
-  async function handleCancel() {
-    if (!confirm('Cancel this sweep? Pending combinations will not run.'))
-      return
+  async function performCancel() {
     setCancelling(true)
     try {
       await cancelSweepAction(sweepId)
+      setConfirmCancelOpen(false)
       router.refresh()
     } finally {
       setCancelling(false)
@@ -129,7 +131,7 @@ export function SweepRunner({
         {isActive ? (
           <button
             type="button"
-            onClick={handleCancel}
+            onClick={() => setConfirmCancelOpen(true)}
             disabled={cancelling}
             className="rounded-md border border-white/10 px-3 py-1 text-xs text-white/65 transition-colors hover:border-red-500/40 hover:text-red-300 disabled:opacity-40"
           >
@@ -137,6 +139,17 @@ export function SweepRunner({
           </button>
         ) : null}
       </div>
+      <ConfirmDialog
+        open={confirmCancelOpen}
+        onClose={() => setConfirmCancelOpen(false)}
+        onConfirm={performCancel}
+        title="Cancel sweep?"
+        message="Pending combinations will not run. Combinations already in flight will finish."
+        confirmLabel="Cancel sweep"
+        cancelLabel="Keep running"
+        destructive
+        busy={cancelling}
+      />
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/[0.06]">
         <div
           className={twMerge(
