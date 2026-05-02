@@ -1,5 +1,5 @@
 // AUTO-GENERATED. Do not edit. Run `npm run bundle:scanner` to regenerate.
-// Generated: 2026-05-02T11:36:06.518Z
+// Generated: 2026-05-02T11:41:09.648Z
 //
 // Source files (in dependency order):
 //   supabase/functions/_shared/hyperliquid.ts
@@ -2622,10 +2622,11 @@ function evaluateStrategy(
   return { triggered: false, condition_values: conditionValues }
 }
 
-// Re-export Candle type for external consumers building an
-// EvaluationContext without importing the hyperliquid module
-// directly.
-type { Candle }
+// Candle is intentionally not re-exported here. The bundler used
+// for the Edge Function deploy strips `export` keywords during
+// concatenation, which would turn `export type { Candle }` into
+// invalid `type { Candle }`. Callers import Candle directly from
+// the hyperliquid module instead.
 
 // ---------------------------------------------------------------------
 // supabase/functions/_shared/strategies/conditions/_helpers.ts
