@@ -16,8 +16,13 @@ const symbolSchema = z
 export const backtestConfigInputSchema = z
   .object({
     name: z.string().trim().min(1, 'Name is required').max(160),
-    framework_id: z.string().trim().min(1, 'Framework is required').max(64),
-    framework_thresholds: z.record(z.string(), z.coerce.number().finite()),
+    // Either framework_id (legacy) or strategy_definition_id
+    // (composable). The refine below enforces exactly one.
+    framework_id: z.string().trim().min(1).max(64).optional(),
+    framework_thresholds: z
+      .record(z.string(), z.coerce.number().finite())
+      .optional(),
+    strategy_definition_id: z.string().uuid().optional(),
     timeframe: z.enum(BACKTEST_TIMEFRAMES),
     pairs: z
       .array(symbolSchema)
@@ -54,6 +59,25 @@ export const backtestConfigInputSchema = z
   .refine((data) => data.date_range_end > data.date_range_start, {
     path: ['date_range_end'],
     message: 'End date must be after start date',
+  })
+  .superRefine((v, ctx) => {
+    const hasFw = Boolean(v.framework_id)
+    const hasDef = Boolean(v.strategy_definition_id)
+    if (hasFw === hasDef) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'backtest needs exactly one of framework_id or strategy_definition_id',
+        path: ['framework_id'],
+      })
+    }
+    if (hasFw && !v.framework_thresholds) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'framework_thresholds required when targeting a framework',
+        path: ['framework_thresholds'],
+      })
+    }
   })
 
 export type BacktestConfigInput = z.infer<typeof backtestConfigInputSchema>

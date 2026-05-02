@@ -7,10 +7,18 @@
 //   enum:    { type: 'enum', values: [...] }
 //   boolean: { type: 'boolean' }
 //
-// Dimension keys are validated against a whitelist of sweepable
-// parameters (framework thresholds, risk parameters, fees). The
-// engine itself is unaware of sweeps; it only sees the merged
-// per-combination configs the orchestrator produces.
+// A sweep targets either a hardcoded framework or a composable
+// strategy_definition (see backtestSource()). For framework
+// sweeps the dimension's `key` names a flat config field
+// (rsi_oversold, stop_pct, risk_amount_gbp etc). For composable
+// sweeps it is a JSON path into the strategy_definition snapshot
+// (entry.groups[0].conditions[0].params.value etc). Internally we
+// normalise both into the same `key` field so the cartesian
+// product expansion does not need to know the difference.
+
+import { hasPath, setByPath } from '@/lib/strategies/json-path'
+import { validateStrategyDefinition } from '@/lib/strategies/schema'
+import type { StrategyDefinition } from '@/lib/strategies/types'
 
 export type SweepDimensionRange = {
   type: 'range'
@@ -206,4 +214,48 @@ export function applyCombination(
     }
   }
   return merged
+}
+
+// --- Composable strategy sweeps --------------------------------
+
+export type SweepStrategySource = 'framework' | 'strategy_definition'
+
+// Validates that every dimension's key resolves to an existing
+// path in the supplied StrategyDefinition. Returned errors are
+// path-prefixed so the UI can highlight the offending dimension.
+// Range / enum / boolean shape itself is not the concern of this
+// function; the zod validator handles that earlier.
+export function validateDimensionPaths(
+  definition: StrategyDefinition,
+  dimensions: SweepDimension[],
+): string[] {
+  const errors: string[] = []
+  for (let i = 0; i < dimensions.length; i++) {
+    const dim = dimensions[i]!
+    if (!hasPath(definition, dim.key)) {
+      errors.push(
+        `dimensions[${i}].path "${dim.key}" does not resolve in the strategy definition`,
+      )
+    }
+  }
+  return errors
+}
+
+// Applies a combination's overrides on top of a base strategy
+// definition. Each combination key is treated as a JSON path; the
+// resulting object is re-validated through the schema validator
+// so a typo'd path or out-of-range value cannot produce a corrupt
+// snapshot at run time.
+export function applyCombinationToDefinition(
+  baseDefinition: StrategyDefinition,
+  combination: SweepCombination,
+): StrategyDefinition {
+  let next: StrategyDefinition = baseDefinition
+  for (const [path, value] of Object.entries(combination)) {
+    next = setByPath(next, path, value)
+  }
+  // Re-validate. setByPath is structural; nothing stops a sweep
+  // from setting period to a string. The schema validator's
+  // path-prefixed errors point straight at the offending field.
+  return validateStrategyDefinition(next)
 }

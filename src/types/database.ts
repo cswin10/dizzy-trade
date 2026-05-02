@@ -625,7 +625,7 @@ export type Database = {
           tenant_id: string
           name: string
           created_at: string | null
-          framework_id: string
+          framework_id: string | null
           framework_thresholds: Record<string, number>
           timeframe: string
           pairs: string[]
@@ -666,14 +666,16 @@ export type Database = {
           sweep_id: string | null
           sweep_combination_index: number | null
           sweep_combination_values: Record<string, unknown> | null
+          strategy_definition_id: string | null
+          strategy_definition_snapshot: Record<string, unknown> | null
         }
         Insert: {
           id?: string
           tenant_id: string
           name: string
           created_at?: string | null
-          framework_id: string
-          framework_thresholds: Record<string, number>
+          framework_id?: string | null
+          framework_thresholds?: Record<string, number>
           timeframe: string
           pairs: string[]
           risk_amount_gbp: number
@@ -713,13 +715,15 @@ export type Database = {
           sweep_id?: string | null
           sweep_combination_index?: number | null
           sweep_combination_values?: Record<string, unknown> | null
+          strategy_definition_id?: string | null
+          strategy_definition_snapshot?: Record<string, unknown> | null
         }
         Update: {
           id?: string
           tenant_id?: string
           name?: string
           created_at?: string | null
-          framework_id?: string
+          framework_id?: string | null
           framework_thresholds?: Record<string, number>
           timeframe?: string
           pairs?: string[]
@@ -760,6 +764,8 @@ export type Database = {
           sweep_id?: string | null
           sweep_combination_index?: number | null
           sweep_combination_values?: Record<string, unknown> | null
+          strategy_definition_id?: string | null
+          strategy_definition_snapshot?: Record<string, unknown> | null
         }
         Relationships: []
       }
@@ -769,7 +775,7 @@ export type Database = {
           tenant_id: string
           name: string
           created_at: string | null
-          framework_id: string
+          framework_id: string | null
           timeframe: string
           pairs: string[]
           date_range_start: string
@@ -791,13 +797,15 @@ export type Database = {
           run_started_at: string | null
           run_completed_at: string | null
           error_message: string | null
+          strategy_definition_id: string | null
+          strategy_definition_snapshot: Record<string, unknown> | null
         }
         Insert: {
           id?: string
           tenant_id: string
           name: string
           created_at?: string | null
-          framework_id: string
+          framework_id?: string | null
           timeframe: string
           pairs: string[]
           date_range_start: string
@@ -819,13 +827,15 @@ export type Database = {
           run_started_at?: string | null
           run_completed_at?: string | null
           error_message?: string | null
+          strategy_definition_id?: string | null
+          strategy_definition_snapshot?: Record<string, unknown> | null
         }
         Update: {
           id?: string
           tenant_id?: string
           name?: string
           created_at?: string | null
-          framework_id?: string
+          framework_id?: string | null
           timeframe?: string
           pairs?: string[]
           date_range_start?: string
@@ -847,6 +857,8 @@ export type Database = {
           run_started_at?: string | null
           run_completed_at?: string | null
           error_message?: string | null
+          strategy_definition_id?: string | null
+          strategy_definition_snapshot?: Record<string, unknown> | null
         }
         Relationships: []
       }
