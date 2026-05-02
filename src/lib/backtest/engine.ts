@@ -139,6 +139,13 @@ type OpenPosition = {
   target_price: number
   size_coin: number
   size_usd: number
+  // GBP risk the engine actually sized this position against. For
+  // composable strategies this is the strategy's own
+  // sizing.amount; for legacy framework strategies it is
+  // config.risk_amount_gbp. Stored on the position so R-multiple
+  // is computed against the same denominator the position was
+  // sized against, regardless of the entry path.
+  risk_gbp_used: number
   conditions_at_signal: Record<string, unknown>
   candles_open: number
 }
@@ -267,7 +274,6 @@ function checkExits(
   feePct: number,
   slippagePct: number,
   gbpUsdRate: number,
-  riskAmountGbp: number,
 ): void {
   const open = state.open_positions.get(entry.pair)
   if (!open) return
@@ -324,7 +330,6 @@ function checkExits(
       exitReason,
       feePct,
       gbpUsdRate,
-      riskAmountGbp,
     )
     return
   }
@@ -338,7 +343,6 @@ function maybeTimeout(
   timeoutCandles: number,
   feePct: number,
   gbpUsdRate: number,
-  riskAmountGbp: number,
 ): void {
   const open = state.open_positions.get(entry.pair)
   if (!open) return
@@ -352,7 +356,6 @@ function maybeTimeout(
     'timeout',
     feePct,
     gbpUsdRate,
-    riskAmountGbp,
   )
 }
 
@@ -364,12 +367,17 @@ function closePosition(
   exitReason: 'target_hit' | 'stop_hit' | 'timeout' | 'open_at_period_end',
   feePct: number,
   gbpUsdRate: number,
-  riskAmountGbp: number,
 ): void {
   const pnlUsd = computePnlUsd(position, exitPrice, feePct)
   const pnlGbp = pnlUsd / gbpUsdRate
   const outcome = classifyOutcome(pnlGbp)
-  const rMultiple = riskAmountGbp > 0 ? pnlGbp / riskAmountGbp : 0
+  // Always normalise R against the GBP risk this specific position
+  // was sized against (not the run-level config). For a composable
+  // strategy with a £30 sizing rule, a stop hit at -£30 lands as
+  // R = -1, regardless of what the legacy config.risk_amount_gbp
+  // happens to be.
+  const rMultiple =
+    position.risk_gbp_used > 0 ? pnlGbp / position.risk_gbp_used : 0
 
   const trade: SimulatedTrade = {
     pair: position.pair,
@@ -584,18 +592,39 @@ function computeEntrySize(
   fillPrice: number,
   stopPrice: number,
   gbpUsdRate: number,
-): { sizeCoin: number; sizeUsd: number } | null {
+): { sizeCoin: number; sizeUsd: number; riskGbp: number } | null {
   const definition = config.strategy_definition_snapshot
   if (definition && definition.sizing.type === 'fixed_position_size') {
     const size = definition.sizing.size
     if (size <= 0) return null
-    return { sizeCoin: size, sizeUsd: size * fillPrice }
+    // Coin-denominated sizing: derive an effective GBP risk from
+    // the actual stop distance so R-multiple stays meaningful.
+    const perCoinRisk = Math.abs(fillPrice - stopPrice)
+    const riskUsd = perCoinRisk * size
+    const riskGbp = riskUsd / gbpUsdRate
+    return { sizeCoin: size, sizeUsd: size * fillPrice, riskGbp }
   }
-  const riskUsd = config.risk_amount_gbp * gbpUsdRate
+  // Composable fixed_gbp_risk uses the strategy's own per-trade
+  // risk amount in GBP rather than the run-level config.risk_amount_gbp
+  // that the legacy framework path relies on. Without this branch
+  // the engine silently sized every composable trade off the form's
+  // risk_amount_gbp value (which the batch form derived from
+  // starting capital), inflating losses by orders of magnitude.
+  if (definition && definition.sizing.type === 'fixed_gbp_risk') {
+    const riskGbp = definition.sizing.amount
+    if (riskGbp <= 0) return null
+    const riskUsd = riskGbp * gbpUsdRate
+    const perCoinRisk = Math.abs(fillPrice - stopPrice)
+    if (perCoinRisk <= 0) return null
+    const sizeCoin = riskUsd / perCoinRisk
+    return { sizeCoin, sizeUsd: sizeCoin * fillPrice, riskGbp }
+  }
+  const riskGbp = config.risk_amount_gbp
+  const riskUsd = riskGbp * gbpUsdRate
   const perCoinRisk = Math.abs(fillPrice - stopPrice)
   if (perCoinRisk <= 0) return null
   const sizeCoin = riskUsd / perCoinRisk
-  return { sizeCoin, sizeUsd: sizeCoin * fillPrice }
+  return { sizeCoin, sizeUsd: sizeCoin * fillPrice, riskGbp }
 }
 
 export async function runBacktest(
@@ -716,22 +745,8 @@ export async function runBacktest(
     // Order matters: exits before timeouts before signal evaluation.
     // A target hit on the same bar that would otherwise time out
     // should be recorded as a target_hit, not a timeout.
-    checkExits(
-      state,
-      entry,
-      feePct,
-      config.slippage_pct,
-      gbpUsdRate,
-      config.risk_amount_gbp,
-    )
-    maybeTimeout(
-      state,
-      entry,
-      timeoutCandles,
-      feePct,
-      gbpUsdRate,
-      config.risk_amount_gbp,
-    )
+    checkExits(state, entry, feePct, config.slippage_pct, gbpUsdRate)
+    maybeTimeout(state, entry, timeoutCandles, feePct, gbpUsdRate)
 
     if (state.open_positions.has(entry.pair)) {
       // One position per pair at a time; do not stack signals.
@@ -855,6 +870,7 @@ export async function runBacktest(
       target_price: targetPrice,
       size_coin: sizeResult.sizeCoin,
       size_usd: sizeResult.sizeUsd,
+      risk_gbp_used: sizeResult.riskGbp,
       conditions_at_signal: { ...signal.condition_values },
       candles_open: 0,
     })
@@ -874,7 +890,6 @@ export async function runBacktest(
       'open_at_period_end',
       feePct,
       gbpUsdRate,
-      config.risk_amount_gbp,
     )
   })
 

@@ -24,7 +24,15 @@ type SharedConfig = {
   timeframe: string
   date_range_start: string
   date_range_end: string
+  // Equity baseline used for context (drawdown denominators, future
+  // equity-curve charts). Not used for per-trade sizing.
   starting_capital_gbp: number
+  // Risk-per-trade in GBP for legacy framework strategies. Composable
+  // strategies use their own sizing rule (e.g.
+  // sizing.fixed_gbp_risk.amount); this field is informational for them.
+  // Optional so existing callers that still send only starting_capital
+  // continue to function — defaults to that value when omitted.
+  risk_amount_gbp?: number
   slippage_pct: number
   maker_fee_pct: number
   taker_fee_pct: number
@@ -172,6 +180,16 @@ export async function createBatchBacktestAction(
   const childRunIds: string[] = []
   const failedStrategies: Array<{ name: string; reason: string }> = []
 
+  // Per-trade risk for legacy framework strategies. Composable
+  // strategies use their own sizing rule (so this value is
+  // effectively ignored for them inside the engine), but the field
+  // is required on the BacktestConfigInput shape and stored on the
+  // run row, so we still pass it through. Falls back to starting
+  // capital only for legacy callers that pre-date the explicit
+  // risk_amount_gbp field — new callers should always set it.
+  const sharedRiskGbp =
+    input.shared.risk_amount_gbp ?? input.shared.starting_capital_gbp
+
   for (const def of composable) {
     const pairs = input.shared.use_strategy_native_pairs
       ? (def.pairs ?? [])
@@ -191,7 +209,7 @@ export async function createBatchBacktestAction(
       strategy_definition_id: def.id,
       timeframe: timeframe as BacktestConfigInput['timeframe'],
       pairs,
-      risk_amount_gbp: input.shared.starting_capital_gbp,
+      risk_amount_gbp: sharedRiskGbp,
       min_rr: 1,
       max_concurrent_positions: 5,
       max_daily_loss_gbp: null,
@@ -245,7 +263,7 @@ export async function createBatchBacktestAction(
       risk_amount_gbp:
         leg.risk_amount_gbp != null
           ? Number(leg.risk_amount_gbp)
-          : input.shared.starting_capital_gbp,
+          : sharedRiskGbp,
       min_rr: leg.min_rr != null ? Number(leg.min_rr) : 1,
       max_concurrent_positions: leg.max_concurrent_positions ?? 5,
       max_daily_loss_gbp:
