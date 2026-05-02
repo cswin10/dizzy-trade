@@ -28,6 +28,7 @@ import type {
 import { ensureCandles } from './candles'
 import {
   FRAMEWORK_WARMUP_CANDLES,
+  TIMEFRAME_MS,
   TIMEOUT_CANDLES,
   backtestSource,
   type BacktestCandle,
@@ -36,6 +37,81 @@ import {
   type SimulatedTrade,
   type SimulatedTradeOutcome,
 } from './types'
+
+// Param keys that drive a condition's lookback. The engine reads
+// them off every condition (and the exit rules, which carry their
+// fields at the top level rather than under params) to compute how
+// many trailing candles the evaluator needs.
+const WARMUP_PARAM_KEYS = [
+  'period',
+  'lookback',
+  'slow_period',
+  'k_period',
+  'd_period',
+  'smooth',
+  'lookback_candles',
+  'sma_period',
+  'ema_period',
+] as const
+
+const WARMUP_BUFFER_CANDLES = 50
+const WARMUP_PARAM_HARD_CAP = 1000
+
+// Minimum trailing window. Mirrors the legacy framework path so a
+// strategy with only short-lookback conditions still gets the same
+// 60-candle context the old engine assumed.
+const MIN_WARMUP_CANDLES = FRAMEWORK_WARMUP_CANDLES
+
+function maxParamValue(
+  source: Record<string, unknown> | undefined | null,
+): number {
+  if (!source) return 0
+  let max = 0
+  for (const key of WARMUP_PARAM_KEYS) {
+    const raw = source[key]
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) continue
+    let value = raw
+    if (value > WARMUP_PARAM_HARD_CAP) {
+      console.warn(
+        `[backtest] warmup param ${key}=${value} exceeds ${WARMUP_PARAM_HARD_CAP}; clamping`,
+      )
+      value = WARMUP_PARAM_HARD_CAP
+    }
+    if (value > max) max = value
+  }
+  return max
+}
+
+// Pulls the largest indicator lookback out of a composable
+// strategy. The result drives both the candle pre-fetch (so the
+// trailing window is full by the time the strategy starts being
+// evaluated) and the trailing window slice inside the loop. Floors
+// at MIN_WARMUP_CANDLES so short strategies behave the same as the
+// legacy framework path.
+export function computeStrategyWarmup(
+  definition: StrategyDefinition,
+): number {
+  let max = 0
+  for (const group of definition.entry.groups) {
+    for (const condition of group.conditions) {
+      const params = condition.params as Record<string, unknown> | undefined
+      const v = maxParamValue(params)
+      if (v > max) max = v
+    }
+  }
+  // Stop and target rules carry their fields at the top level
+  // (e.g. { type: 'atr_multiple', period: 14, multiple: 1.5 }), so
+  // pass the rule itself rather than rule.params.
+  const stopMax = maxParamValue(
+    definition.exit.stop as unknown as Record<string, unknown>,
+  )
+  const targetMax = maxParamValue(
+    definition.exit.target as unknown as Record<string, unknown>,
+  )
+  if (stopMax > max) max = stopMax
+  if (targetMax > max) max = targetMax
+  return Math.max(MIN_WARMUP_CANDLES, max + WARMUP_BUFFER_CANDLES)
+}
 
 const FRANKFURTER_URL = 'https://api.frankfurter.app'
 const GBP_USD_FALLBACK = 1.27
@@ -499,12 +575,35 @@ export async function runBacktest(
 
   const gbpUsdRate = await fetchGbpUsdRate(config.date_range_end)
 
+  // Composable strategies size the warmup window from their own
+  // condition / rule lookbacks; legacy frameworks keep the fixed
+  // 60-candle context they were built against. Either way, the
+  // warmup is also used to pre-fetch enough history before the
+  // requested date range that the trailing window is full from the
+  // first signal-eligible candle.
+  const warmupCandles =
+    backtestSource(config) === 'strategy_definition' &&
+    config.strategy_definition_snapshot
+      ? computeStrategyWarmup(config.strategy_definition_snapshot)
+      : FRAMEWORK_WARMUP_CANDLES
+
+  const tfMs = TIMEFRAME_MS[config.timeframe]
+  // Frameworks fetch only the user-requested range to preserve the
+  // exact behaviour they had pre-fix; composable runs extend the
+  // start backwards by `warmupCandles * tfMs` so that a strategy
+  // with e.g. an EMA(200) filter has 200 closes to work with on the
+  // very first candle of the user's intended date range.
+  const fetchStart =
+    backtestSource(config) === 'strategy_definition'
+      ? new Date(config.date_range_start.getTime() - warmupCandles * tfMs)
+      : config.date_range_start
+
   const perPairCandles = new Map<string, BacktestCandle[]>()
   for (const pair of config.pairs) {
     const candles = await ensureCandles(
       pair,
       config.timeframe,
-      config.date_range_start,
+      fetchStart,
       config.date_range_end,
     )
     perPairCandles.set(pair, candles)
@@ -557,11 +656,11 @@ export async function runBacktest(
     }
 
     const pairCandles = perPairCandles.get(entry.pair)!
-    if (entry.index < FRAMEWORK_WARMUP_CANDLES) continue
+    if (entry.index < warmupCandles) continue
 
     const trailing = pairCandles
       .slice(
-        Math.max(0, entry.index - FRAMEWORK_WARMUP_CANDLES + 1),
+        Math.max(0, entry.index - warmupCandles + 1),
         entry.index + 1,
       )
       .map(toHyperliquidCandle)
