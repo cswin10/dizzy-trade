@@ -72,7 +72,7 @@ export default async function SweepResultPage({
   const { data: runs } = await supabase
     .from('backtest_runs')
     .select(
-      'id, status, sweep_combination_index, sweep_combination_values, total_trades, win_rate, avg_r, total_pnl_gbp, max_drawdown_gbp, sharpe_ratio, overfit_warning_triggered',
+      'id, status, sweep_combination_index, sweep_combination_values, total_trades, win_rate, avg_r, total_pnl_gbp, max_drawdown_gbp, sharpe_ratio, overfit_warning_triggered, error_message',
     )
     .eq('sweep_id', params.sweep_id)
     .order('sweep_combination_index', { ascending: true })
@@ -94,6 +94,7 @@ export default async function SweepResultPage({
       row.max_drawdown_gbp == null ? null : Number(row.max_drawdown_gbp),
     sharpe_ratio: row.sharpe_ratio == null ? null : Number(row.sharpe_ratio),
     overfit_warning_triggered: row.overfit_warning_triggered,
+    error_message: row.error_message,
   }))
 
   const completed = rows.filter((r) => r.status === 'completed')

@@ -142,8 +142,17 @@ export function computeMetrics(
 export type SplitMetrics = {
   train: BacktestMetrics
   test: BacktestMetrics
-  overfit_warning_triggered: boolean
+  // null means we did not have enough trades on either side to make
+  // a meaningful judgement. Treat that as "insufficient data" in the
+  // UI rather than collapsing it to "consistent" (which is what
+  // happens when both sides have zero trades and every gap is 0).
+  overfit_warning_triggered: boolean | null
 }
+
+// Below this threshold on either side, the divergence check is
+// noise. A handful of trades can produce wild swings in win rate
+// and avg R, so any apparent "consistency" is meaningless.
+const MIN_TRADES_FOR_SPLIT_VERDICT = 5
 
 // Splits trades by entry_at into the first `splitPct`% (train) and
 // the remainder (test) of the calendar window the trades cover.
@@ -171,6 +180,13 @@ export function computeSplitMetrics(
 
   const train = computeMetrics(trainTrades, timeframe)
   const test = computeMetrics(testTrades, timeframe)
+
+  if (
+    train.total_trades < MIN_TRADES_FOR_SPLIT_VERDICT ||
+    test.total_trades < MIN_TRADES_FOR_SPLIT_VERDICT
+  ) {
+    return { train, test, overfit_warning_triggered: null }
+  }
 
   const winRateGap = train.win_rate - test.win_rate
   const avgRGap = train.avg_r - test.avg_r

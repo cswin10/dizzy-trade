@@ -11,8 +11,13 @@ import type { BacktestMetrics } from '@/lib/backtest/types'
 export type BacktestTrainTestPanelProps = {
   trainMetrics: BacktestMetrics | null
   testMetrics: BacktestMetrics | null
-  overfitWarning: boolean
+  // null when the split check could not produce a verdict (too few
+  // trades on at least one side). Render as "insufficient data"
+  // rather than collapsing to either green or red.
+  overfitWarning: boolean | null
 }
+
+const MIN_TRADES_FOR_SPLIT_VERDICT = 5
 
 function formatGbp(value: number | null): string {
   if (value === null || !Number.isFinite(value)) return '—'
@@ -50,18 +55,27 @@ export function BacktestTrainTestPanel({
         <SplitCard label="Train" metrics={trainMetrics} />
         <SplitCard label="Test" metrics={testMetrics} />
       </div>
-      <div
-        className={twMerge(
-          'mt-4 rounded-md border p-3 text-sm',
-          overfitWarning
+      {(() => {
+        const tooFewTrades =
+          trainMetrics.total_trades < MIN_TRADES_FOR_SPLIT_VERDICT ||
+          testMetrics.total_trades < MIN_TRADES_FOR_SPLIT_VERDICT
+        const insufficient = overfitWarning === null || tooFewTrades
+        const tone = insufficient
+          ? 'border-white/10 bg-white/[0.03] text-white/55'
+          : overfitWarning
             ? 'border-red-500/30 bg-red-500/10 text-red-200'
-            : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200',
-        )}
-      >
-        {overfitWarning
-          ? 'OVERFIT WARNING: Train metrics significantly outperform test. This strategy may not work in live trading.'
-          : 'Strategy holds up out of sample. Train and test metrics are consistent.'}
-      </div>
+            : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+        const message = insufficient
+          ? 'Insufficient data: need at least 5 trades on each side of the split for a verdict.'
+          : overfitWarning
+            ? 'OVERFIT WARNING: Train metrics significantly outperform test. This strategy may not work in live trading.'
+            : 'Strategy holds up out of sample. Train and test metrics are consistent.'
+        return (
+          <div className={twMerge('mt-4 rounded-md border p-3 text-sm', tone)}>
+            {message}
+          </div>
+        )
+      })()}
     </div>
   )
 

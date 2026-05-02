@@ -17,6 +17,25 @@ export type SweepResultRow = {
   max_drawdown_gbp: number | null
   sharpe_ratio: number | null
   overfit_warning_triggered: boolean | null
+  error_message: string | null
+}
+
+const MIN_TRADES_FOR_SPLIT_VERDICT = 5
+
+type OosVerdict = 'holds' | 'overfit' | 'insufficient'
+
+function oosVerdictFor(row: SweepResultRow): OosVerdict {
+  if ((row.total_trades ?? 0) < MIN_TRADES_FOR_SPLIT_VERDICT) {
+    return 'insufficient'
+  }
+  if (row.overfit_warning_triggered === true) return 'overfit'
+  if (row.overfit_warning_triggered === false) return 'holds'
+  return 'insufficient'
+}
+
+function truncate(text: string, max = 200): string {
+  if (text.length <= max) return text
+  return `${text.slice(0, max - 1)}…`
 }
 
 export type SweepResultsTableProps = {
@@ -75,7 +94,11 @@ export function SweepResultsTable({ rows }: SweepResultsTableProps) {
   const filtered = useMemo(() => {
     return rows.filter((row) => {
       if ((row.total_trades ?? 0) < minTrades) return false
-      if (holdsUpOnly && row.overfit_warning_triggered === true) return false
+      // "Holds up out of sample" means the split check actually
+      // produced a positive verdict, not just "did not overfit".
+      // Insufficient-data rows fail this filter so the user does
+      // not mistake noise for confirmation.
+      if (holdsUpOnly && oosVerdictFor(row) !== 'holds') return false
       return true
     })
   }, [rows, minTrades, holdsUpOnly])
@@ -232,19 +255,7 @@ export function SweepResultsTable({ rows }: SweepResultsTableProps) {
                   {formatNumber(row.sharpe_ratio)}
                 </td>
                 <td className="px-3 py-2">
-                  {row.status !== 'completed' ? (
-                    <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-white/45">
-                      {row.status}
-                    </span>
-                  ) : row.overfit_warning_triggered ? (
-                    <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] uppercase tracking-wide text-red-300">
-                      overfit
-                    </span>
-                  ) : (
-                    <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] uppercase tracking-wide text-emerald-300">
-                      holds
-                    </span>
-                  )}
+                  <StatusOrVerdictPill row={row} />
                 </td>
                 <td className="px-3 py-2 text-right">
                   <Link
@@ -267,6 +278,56 @@ export function SweepResultsTable({ rows }: SweepResultsTableProps) {
         </table>
       </div>
     </div>
+  )
+}
+
+// Combines two cases into one cell: while a run is non-terminal,
+// show its lifecycle status; once completed, show the train/test
+// verdict. The 'failed' pill carries a tooltip with the error
+// message so the operator can diagnose without clicking through.
+function StatusOrVerdictPill({ row }: { row: SweepResultRow }) {
+  if (row.status === 'failed') {
+    const message = row.error_message
+      ? truncate(row.error_message)
+      : 'Run failed without an error message'
+    return (
+      <span
+        title={message}
+        className="cursor-help rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] uppercase tracking-wide text-red-300"
+      >
+        failed
+      </span>
+    )
+  }
+  if (row.status !== 'completed') {
+    return (
+      <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-white/45">
+        {row.status}
+      </span>
+    )
+  }
+  const verdict = oosVerdictFor(row)
+  if (verdict === 'overfit') {
+    return (
+      <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] uppercase tracking-wide text-red-300">
+        overfit
+      </span>
+    )
+  }
+  if (verdict === 'holds') {
+    return (
+      <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] uppercase tracking-wide text-emerald-300">
+        holds
+      </span>
+    )
+  }
+  return (
+    <span
+      title="Need at least 5 trades on each side of the split for a verdict"
+      className="cursor-help rounded-full bg-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-white/45"
+    >
+      insufficient
+    </span>
   )
 }
 

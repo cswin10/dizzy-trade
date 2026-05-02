@@ -195,7 +195,7 @@ export async function executeBacktestRunAction(
 
     let trainMetrics: Record<string, unknown> | null = null
     let testMetrics: Record<string, unknown> | null = null
-    let overfit = false
+    let overfit: boolean | null = null
     if (run.enable_train_test_split) {
       const split = computeSplitMetrics(
         result.trades,
