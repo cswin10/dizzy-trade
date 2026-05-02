@@ -689,6 +689,7 @@ export type Database = {
           sweep_combination_values: Record<string, unknown> | null
           strategy_definition_id: string | null
           strategy_definition_snapshot: Record<string, unknown> | null
+          batch_run_id: string | null
         }
         Insert: {
           id?: string
@@ -738,6 +739,7 @@ export type Database = {
           sweep_combination_values?: Record<string, unknown> | null
           strategy_definition_id?: string | null
           strategy_definition_snapshot?: Record<string, unknown> | null
+          batch_run_id?: string | null
         }
         Update: {
           id?: string
@@ -787,6 +789,49 @@ export type Database = {
           sweep_combination_values?: Record<string, unknown> | null
           strategy_definition_id?: string | null
           strategy_definition_snapshot?: Record<string, unknown> | null
+          batch_run_id?: string | null
+        }
+        Relationships: []
+      }
+      batch_backtest_runs: {
+        Row: {
+          id: string
+          tenant_id: string
+          user_id: string
+          name: string | null
+          status: 'pending' | 'running' | 'completed' | 'failed'
+          config: Record<string, unknown>
+          strategy_definition_ids: string[]
+          legacy_strategy_ids: string[]
+          created_at: string
+          completed_at: string | null
+          error_message: string | null
+        }
+        Insert: {
+          id?: string
+          tenant_id: string
+          user_id: string
+          name?: string | null
+          status?: 'pending' | 'running' | 'completed' | 'failed'
+          config: Record<string, unknown>
+          strategy_definition_ids?: string[]
+          legacy_strategy_ids?: string[]
+          created_at?: string
+          completed_at?: string | null
+          error_message?: string | null
+        }
+        Update: {
+          id?: string
+          tenant_id?: string
+          user_id?: string
+          name?: string | null
+          status?: 'pending' | 'running' | 'completed' | 'failed'
+          config?: Record<string, unknown>
+          strategy_definition_ids?: string[]
+          legacy_strategy_ids?: string[]
+          created_at?: string
+          completed_at?: string | null
+          error_message?: string | null
         }
         Relationships: []
       }
