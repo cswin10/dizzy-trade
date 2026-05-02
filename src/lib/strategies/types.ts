@@ -34,7 +34,7 @@ export type EntryGroup = {
 export type StopRule =
   | { type: 'fixed_pct'; pct: number }
   | { type: 'atr_multiple'; period: number; multiple: number }
-  | { type: 'recent_swing'; lookback_candles: number }
+  | { type: 'recent_swing'; lookback_candles: number; buffer_pct?: number }
 
 export type TargetRule =
   | { type: 'fixed_pct'; pct: number }
