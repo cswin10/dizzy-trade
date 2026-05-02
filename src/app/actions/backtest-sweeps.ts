@@ -11,14 +11,18 @@ import {
 } from '@/lib/backtest/metrics'
 import {
   applyCombination,
+  applyCombinationToDefinition,
   expandSweepDimensions,
+  validateDimensionPaths,
   type SweepCombination,
   type SweepDimension,
 } from '@/lib/backtest/sweep'
+import { validateStrategyDefinition } from '@/lib/strategies/schema'
 import {
   type BacktestConfig,
   type BacktestTimeframe,
 } from '@/lib/backtest/types'
+import type { StrategyDefinition } from '@/lib/strategies/types'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import {
@@ -81,12 +85,56 @@ export async function createSweepAction(
   }
 
   const service = createServiceClient()
+
+  // Composable sweeps need a snapshot of the source definition
+  // taken at create time. Path validation is done up front: a
+  // typo'd dimension path would silently produce identical runs
+  // (every applyCombinationToDefinition would no-op), which is
+  // worse than an error.
+  let definitionSnapshot: Record<string, unknown> | undefined
+  if (cfg.strategy_definition_id) {
+    const { data: defRow, error: defError } = await service
+      .from('strategy_definitions')
+      .select('definition')
+      .eq('id', cfg.strategy_definition_id)
+      .eq('tenant_id', ctx.tenantId)
+      .single()
+    if (defError || !defRow) {
+      return {
+        ok: false,
+        message: defError?.message ?? 'Strategy definition not found',
+      }
+    }
+    let parsedDef
+    try {
+      parsedDef = validateStrategyDefinition(defRow.definition)
+    } catch (error) {
+      return {
+        ok: false,
+        message:
+          error instanceof Error
+            ? `Strategy definition is invalid: ${error.message}`
+            : 'Strategy definition is invalid',
+      }
+    }
+    const pathErrors = validateDimensionPaths(
+      parsedDef,
+      cfg.dimensions as SweepDimension[],
+    )
+    if (pathErrors.length > 0) {
+      return { ok: false, message: pathErrors.join('; ') }
+    }
+    definitionSnapshot = parsedDef as unknown as Record<string, unknown>
+  }
+
   const { data: sweep, error: sweepError } = await service
     .from('backtest_sweeps')
     .insert({
       tenant_id: ctx.tenantId,
       name: cfg.name,
-      framework_id: cfg.framework_id,
+      framework_id: cfg.framework_id ?? null,
+      strategy_definition_id: cfg.strategy_definition_id ?? null,
+      strategy_definition_snapshot: definitionSnapshot ?? null,
       timeframe: cfg.timeframe,
       pairs: cfg.pairs,
       date_range_start: cfg.date_range_start.toISOString(),
@@ -110,25 +158,66 @@ export async function createSweepAction(
     return { ok: false, message: sweepError?.message ?? 'Insert failed' }
   }
 
-  const base = {
-    framework_thresholds: cfg.framework_thresholds,
-    risk_amount_gbp: cfg.risk_amount_gbp,
-    min_rr: cfg.min_rr,
-    max_concurrent_positions: cfg.max_concurrent_positions,
-    max_daily_loss_gbp: cfg.max_daily_loss_gbp,
-    max_consecutive_losers: cfg.max_consecutive_losers,
-    slippage_pct: cfg.slippage_pct,
-    maker_fee_pct: cfg.maker_fee_pct,
-    taker_fee_pct: cfg.taker_fee_pct,
-    assume_taker: cfg.assume_taker,
-  }
-
+  // Materialise per-combination run rows. Two source-specific
+  // branches: framework sweeps merge flat keys via applyCombination;
+  // composable sweeps deep-merge into a fresh strategy_definition
+  // snapshot via applyCombinationToDefinition.
   const runRows = combinations.map((combo, index) => {
+    if (cfg.strategy_definition_id) {
+      const variant = applyCombinationToDefinition(
+        // definitionSnapshot is set whenever strategy_definition_id is
+        validateStrategyDefinition(definitionSnapshot!),
+        combo,
+      )
+      return {
+        tenant_id: ctx.tenantId,
+        name: `${cfg.name} #${index + 1}`,
+        framework_id: null,
+        strategy_definition_id: cfg.strategy_definition_id,
+        strategy_definition_snapshot: variant as unknown as Record<
+          string,
+          unknown
+        >,
+        timeframe: cfg.timeframe,
+        pairs: cfg.pairs,
+        risk_amount_gbp: cfg.risk_amount_gbp,
+        min_rr: cfg.min_rr,
+        max_concurrent_positions: cfg.max_concurrent_positions,
+        max_daily_loss_gbp: cfg.max_daily_loss_gbp,
+        max_consecutive_losers: cfg.max_consecutive_losers,
+        date_range_start: cfg.date_range_start.toISOString(),
+        date_range_end: cfg.date_range_end.toISOString(),
+        slippage_pct: cfg.slippage_pct,
+        maker_fee_pct: cfg.maker_fee_pct,
+        taker_fee_pct: cfg.taker_fee_pct,
+        assume_taker: cfg.assume_taker,
+        enable_train_test_split: cfg.enable_train_test_split,
+        train_split_pct: cfg.train_split_pct,
+        status: 'pending' as const,
+        sweep_id: sweep.id,
+        sweep_combination_index: index,
+        sweep_combination_values: combo as Record<string, unknown>,
+      }
+    }
+    const base = {
+      framework_thresholds: cfg.framework_thresholds ?? {},
+      risk_amount_gbp: cfg.risk_amount_gbp,
+      min_rr: cfg.min_rr,
+      max_concurrent_positions: cfg.max_concurrent_positions,
+      max_daily_loss_gbp: cfg.max_daily_loss_gbp,
+      max_consecutive_losers: cfg.max_consecutive_losers,
+      slippage_pct: cfg.slippage_pct,
+      maker_fee_pct: cfg.maker_fee_pct,
+      taker_fee_pct: cfg.taker_fee_pct,
+      assume_taker: cfg.assume_taker,
+    }
     const merged = applyCombination(base, combo)
     return {
       tenant_id: ctx.tenantId,
       name: `${cfg.name} #${index + 1}`,
-      framework_id: cfg.framework_id,
+      framework_id: cfg.framework_id ?? null,
+      strategy_definition_id: null,
+      strategy_definition_snapshot: null,
       framework_thresholds: merged.framework_thresholds,
       timeframe: cfg.timeframe,
       pairs: cfg.pairs,
@@ -214,8 +303,12 @@ async function processSingleRun(
 
   try {
     const config: BacktestConfig = {
-      framework_id: run.framework_id,
+      framework_id: run.framework_id ?? undefined,
       framework_thresholds: run.framework_thresholds,
+      strategy_definition_id: run.strategy_definition_id ?? undefined,
+      strategy_definition_snapshot: run.strategy_definition_snapshot
+        ? (run.strategy_definition_snapshot as unknown as StrategyDefinition)
+        : undefined,
       timeframe: run.timeframe as BacktestTimeframe,
       pairs: run.pairs,
       risk_amount_gbp: Number(run.risk_amount_gbp),

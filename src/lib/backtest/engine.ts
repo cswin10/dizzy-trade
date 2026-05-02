@@ -18,11 +18,18 @@ import 'server-only'
 
 import { FRAMEWORKS, type MarketSnapshot } from '@/lib/frameworks'
 import type { Candle } from '@/lib/hyperliquid'
+import { evaluateStrategy } from '@/lib/strategies/evaluator'
+import '@/lib/strategies/register'
+import type {
+  EvaluationContext,
+  StrategyDefinition,
+} from '@/lib/strategies/types'
 
 import { ensureCandles } from './candles'
 import {
   FRAMEWORK_WARMUP_CANDLES,
   TIMEOUT_CANDLES,
+  backtestSource,
   type BacktestCandle,
   type BacktestConfig,
   type RunBacktestResult,
@@ -363,13 +370,126 @@ function evaluateRules(
   return violations
 }
 
+// Internal shape produced by either source. The engine's main
+// loop only ever sees this; everything downstream (slippage,
+// rules gating, sizing, position management) is source-agnostic.
+type EngineSignal = {
+  direction: 'long' | 'short'
+  raw_entry: number
+  raw_stop: number
+  raw_target: number
+  condition_values: Record<string, unknown>
+}
+
+type SignalEvaluator = (pair: string, trailing: Candle[]) => EngineSignal | null
+
+function buildSignalEvaluator(config: BacktestConfig): SignalEvaluator {
+  if (backtestSource(config) === 'framework') {
+    if (!config.framework_id) {
+      throw new Error('framework_id required for framework-source backtest')
+    }
+    const framework = FRAMEWORKS.get(config.framework_id)
+    if (!framework) {
+      throw new Error(`Unknown framework: ${config.framework_id}`)
+    }
+    const thresholds = config.framework_thresholds ?? {}
+    return (pair, trailing) => {
+      const last = trailing[trailing.length - 1]!
+      const snapshot: MarketSnapshot = {
+        symbol: pair,
+        markPrice: last.c,
+        funding: 0,
+        openInterest: 0,
+        dayNotionalVolume: 0,
+        candles: trailing,
+      }
+      const result = framework.evaluate(snapshot, thresholds)
+      if (
+        !result.triggered ||
+        !result.suggestedDirection ||
+        result.suggestedEntry === undefined ||
+        result.suggestedStop === undefined ||
+        result.suggestedTarget === undefined
+      ) {
+        return null
+      }
+      return {
+        direction: result.suggestedDirection,
+        raw_entry: result.suggestedEntry,
+        raw_stop: result.suggestedStop,
+        raw_target: result.suggestedTarget,
+        condition_values: result.conditionValues,
+      }
+    }
+  }
+
+  // Composable strategy_definition path. The snapshot must be
+  // present; the action layer is responsible for hydrating it
+  // before calling runBacktest.
+  const definition = config.strategy_definition_snapshot
+  if (!definition) {
+    throw new Error(
+      'strategy_definition_snapshot required for composable-source backtest',
+    )
+  }
+  return (_pair, trailing) => {
+    const last = trailing[trailing.length - 1]!
+    const ctx: EvaluationContext = {
+      candles: trailing,
+      currentCandle: last,
+      currentPrice: last.c,
+      // Backtest data does not carry historical funding yet, so
+      // funding-dependent conditions return passed=false with a
+      // missing_data flag rather than triggering on stale data.
+      funding: undefined,
+    }
+    const result = evaluateStrategy(definition, ctx)
+    if (
+      !result.triggered ||
+      !result.direction ||
+      result.entry_price === undefined ||
+      result.stop_price === undefined ||
+      result.target_price === undefined
+    ) {
+      return null
+    }
+    return {
+      direction: result.direction,
+      raw_entry: result.entry_price,
+      raw_stop: result.stop_price,
+      raw_target: result.target_price,
+      condition_values: result.condition_values,
+    }
+  }
+}
+
+// Position sizing dispatch. Most strategies size off risk in GBP,
+// matching the legacy framework path. Composable strategies may
+// instead specify a fixed coin-denominated size, in which case
+// risk-based math is bypassed.
+function computeEntrySize(
+  config: BacktestConfig,
+  fillPrice: number,
+  stopPrice: number,
+  gbpUsdRate: number,
+): { sizeCoin: number; sizeUsd: number } | null {
+  const definition = config.strategy_definition_snapshot
+  if (definition && definition.sizing.type === 'fixed_position_size') {
+    const size = definition.sizing.size
+    if (size <= 0) return null
+    return { sizeCoin: size, sizeUsd: size * fillPrice }
+  }
+  const riskUsd = config.risk_amount_gbp * gbpUsdRate
+  const perCoinRisk = Math.abs(fillPrice - stopPrice)
+  if (perCoinRisk <= 0) return null
+  const sizeCoin = riskUsd / perCoinRisk
+  return { sizeCoin, sizeUsd: sizeCoin * fillPrice }
+}
+
 export async function runBacktest(
   config: BacktestConfig,
 ): Promise<RunBacktestResult> {
-  const framework = FRAMEWORKS.get(config.framework_id)
-  if (!framework) {
-    throw new Error(`Unknown framework: ${config.framework_id}`)
-  }
+  const evaluateSignal = buildSignalEvaluator(config)
   if (config.pairs.length === 0) {
     throw new Error('At least one pair is required')
   }
@@ -445,34 +565,16 @@ export async function runBacktest(
         entry.index + 1,
       )
       .map(toHyperliquidCandle)
-    const last = trailing[trailing.length - 1]!
 
-    const snapshot: MarketSnapshot = {
-      symbol: entry.pair,
-      markPrice: last.c,
-      funding: 0,
-      openInterest: 0,
-      dayNotionalVolume: 0,
-      candles: trailing,
-    }
-
-    const result = framework.evaluate(snapshot, config.framework_thresholds)
-    if (!result.triggered) continue
+    const signal = evaluateSignal(entry.pair, trailing)
+    if (!signal) continue
 
     state.signals_total += 1
 
-    const direction = result.suggestedDirection
-    const rawEntry = result.suggestedEntry
-    const rawStop = result.suggestedStop
-    const rawTarget = result.suggestedTarget
-    if (
-      !direction ||
-      rawEntry === undefined ||
-      rawStop === undefined ||
-      rawTarget === undefined
-    ) {
-      continue
-    }
+    const direction = signal.direction
+    const rawEntry = signal.raw_entry
+    const rawStop = signal.raw_stop
+    const rawTarget = signal.raw_target
 
     // Lookahead avoidance: framework evaluates on close of candle N,
     // we open the trade at the open of candle N+1 on this pair. If
@@ -531,20 +633,20 @@ export async function runBacktest(
         r_multiple: 0,
         outcome: 'breakeven',
         conditions_at_signal: {
-          ...result.conditionValues,
+          ...signal.condition_values,
           rules_violations: violations,
         },
       })
       continue
     }
 
-    // Position size from risk: risk_amount_gbp -> usd, divide by
-    // per-coin risk distance.
-    const riskUsd = config.risk_amount_gbp * gbpUsdRate
-    const perCoinRisk = Math.abs(fillPrice - stopPrice)
-    if (perCoinRisk <= 0) continue
-    const sizeCoin = riskUsd / perCoinRisk
-    const sizeUsd = sizeCoin * fillPrice
+    const sizeResult = computeEntrySize(
+      config,
+      fillPrice,
+      stopPrice,
+      gbpUsdRate,
+    )
+    if (!sizeResult) continue
 
     state.open_positions.set(entry.pair, {
       pair: entry.pair,
@@ -554,9 +656,9 @@ export async function runBacktest(
       entry_price: fillPrice,
       stop_price: stopPrice,
       target_price: targetPrice,
-      size_coin: sizeCoin,
-      size_usd: sizeUsd,
-      conditions_at_signal: { ...result.conditionValues },
+      size_coin: sizeResult.sizeCoin,
+      size_usd: sizeResult.sizeUsd,
+      conditions_at_signal: { ...signal.condition_values },
       candles_open: 0,
     })
   }

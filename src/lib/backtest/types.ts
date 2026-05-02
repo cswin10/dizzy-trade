@@ -3,6 +3,8 @@
 // results and aggregate metrics. Types here are referenced by the
 // engine, the metrics module, the server actions, and the UI.
 
+import type { StrategyDefinition } from '@/lib/strategies/types'
+
 export const BACKTEST_TIMEFRAMES = [
   '1m',
   '5m',
@@ -26,9 +28,28 @@ export type BacktestCandle = {
   volume: number
 }
 
+// A backtest is sourced from exactly one strategy: either a legacy
+// hardcoded framework, or a composable strategy_definition (the
+// JSON document validated by src/lib/strategies/schema.ts). The
+// engine dispatches on which one is present at run time. The two
+// halves are kept on the same flat type so the existing fee /
+// slippage / risk fields are shared.
 export type BacktestConfig = {
-  framework_id: string
-  framework_thresholds: Record<string, number>
+  // Legacy path. framework_id and framework_thresholds are set
+  // together when a backtest targets one of the hardcoded
+  // frameworks (e.g. simple_rsi_v1, mean_reversion_v1).
+  framework_id?: string
+  framework_thresholds?: Record<string, number>
+
+  // Composable path. strategy_definition_id is the source of
+  // truth in the database; the engine itself only reads
+  // strategy_definition_snapshot, which the action layer
+  // populates from the snapshot column on backtest_runs. This
+  // keeps the engine immune to upstream edits / deletes of the
+  // live definition row.
+  strategy_definition_id?: string
+  strategy_definition_snapshot?: StrategyDefinition
+
   timeframe: BacktestTimeframe
   pairs: string[]
   risk_amount_gbp: number
@@ -42,6 +63,15 @@ export type BacktestConfig = {
   maker_fee_pct: number
   taker_fee_pct: number
   assume_taker: boolean
+}
+
+export type BacktestStrategySource = 'framework' | 'strategy_definition'
+
+export function backtestSource(config: BacktestConfig): BacktestStrategySource {
+  if (config.strategy_definition_snapshot || config.strategy_definition_id) {
+    return 'strategy_definition'
+  }
+  return 'framework'
 }
 
 export type SimulatedTradeExitReason =

@@ -9,6 +9,7 @@ import {
   isInTrainPeriod,
 } from '@/lib/backtest/metrics'
 import type { BacktestConfig, BacktestTimeframe } from '@/lib/backtest/types'
+import type { StrategyDefinition } from '@/lib/strategies/types'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import {
@@ -62,13 +63,37 @@ export async function createBacktestRunAction(
   const cfg = parsed.data
 
   const service = createServiceClient()
+
+  // Composable runs snapshot the strategy_definition at create
+  // time so a later edit or delete of the source row does not
+  // retroactively change historical results. The engine reads
+  // from the snapshot column, never from the live row.
+  let strategySnapshot: Record<string, unknown> | null = null
+  if (cfg.strategy_definition_id) {
+    const { data: defRow, error: defError } = await service
+      .from('strategy_definitions')
+      .select('definition')
+      .eq('id', cfg.strategy_definition_id)
+      .eq('tenant_id', ctx.tenantId)
+      .single()
+    if (defError || !defRow) {
+      return {
+        ok: false,
+        message: defError?.message ?? 'Strategy definition not found',
+      }
+    }
+    strategySnapshot = defRow.definition as Record<string, unknown>
+  }
+
   const { data, error } = await service
     .from('backtest_runs')
     .insert({
       tenant_id: ctx.tenantId,
       name: cfg.name,
-      framework_id: cfg.framework_id,
-      framework_thresholds: cfg.framework_thresholds,
+      framework_id: cfg.framework_id ?? null,
+      framework_thresholds: cfg.framework_thresholds ?? {},
+      strategy_definition_id: cfg.strategy_definition_id ?? null,
+      strategy_definition_snapshot: strategySnapshot,
       timeframe: cfg.timeframe,
       pairs: cfg.pairs,
       risk_amount_gbp: cfg.risk_amount_gbp,
@@ -133,8 +158,12 @@ export async function executeBacktestRunAction(
 
   try {
     const config: BacktestConfig = {
-      framework_id: run.framework_id,
+      framework_id: run.framework_id ?? undefined,
       framework_thresholds: run.framework_thresholds,
+      strategy_definition_id: run.strategy_definition_id ?? undefined,
+      strategy_definition_snapshot: run.strategy_definition_snapshot
+        ? (run.strategy_definition_snapshot as unknown as StrategyDefinition)
+        : undefined,
       timeframe: run.timeframe as BacktestTimeframe,
       pairs: run.pairs,
       risk_amount_gbp: Number(run.risk_amount_gbp),

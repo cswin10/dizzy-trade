@@ -14,7 +14,7 @@ export type SweepSummary = {
   id: string
   name: string
   status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
-  framework_id: string
+  framework_id: string | null
   timeframe: string
   pairs: string[]
   date_range_start: string
