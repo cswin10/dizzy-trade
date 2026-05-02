@@ -61,7 +61,7 @@ void targetRuleSchemaRegistry
 void sizingRuleSchemaRegistry
 
 // Type re-exports are dropped here on purpose: the bundler used
-// for the Edge Function deploy strips `export` keywords during
-// concatenation, which would turn `export type { ... }` into
-// invalid `type { ... }`. Callers import these types directly
+// for the Edge Function deploy strips export keywords during
+// concatenation, which would leave a dangling type re-export
+// list at module scope. Callers import these types directly
 // from ./types.ts.
