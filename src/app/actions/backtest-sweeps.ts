@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 
+import { ensureCandles } from '@/lib/backtest/candles'
 import { runBacktest } from '@/lib/backtest/engine'
 import {
   computeMetrics,
@@ -14,7 +15,10 @@ import {
   type SweepCombination,
   type SweepDimension,
 } from '@/lib/backtest/sweep'
-import type { BacktestConfig, BacktestTimeframe } from '@/lib/backtest/types'
+import {
+  type BacktestConfig,
+  type BacktestTimeframe,
+} from '@/lib/backtest/types'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import {
@@ -268,7 +272,7 @@ async function processSingleRun(
     const metrics = computeMetrics(result.trades, run.timeframe)
     let trainMetrics: Record<string, unknown> | null = null
     let testMetrics: Record<string, unknown> | null = null
-    let overfit = false
+    let overfit: boolean | null = null
     if (run.enable_train_test_split) {
       const split = computeSplitMetrics(
         result.trades,
@@ -342,7 +346,7 @@ export async function processNextSweepBatchAction(
   const { data: sweep, error: loadError } = await service
     .from('backtest_sweeps')
     .select(
-      'id, status, combinations_completed, combinations_failed, total_combinations',
+      'id, status, combinations_completed, combinations_failed, total_combinations, pairs, timeframe, date_range_start, date_range_end',
     )
     .eq('id', sweepId)
     .eq('tenant_id', ctx.tenantId)
@@ -354,11 +358,39 @@ export async function processNextSweepBatchAction(
     return { ok: true, id: sweepId }
   }
 
-  if (sweep.status === 'pending') {
+  // First batch: warm the candle cache once so the parallel runs
+  // that follow all hit the cache instead of racing to fetch the
+  // same data from Hyperliquid. Every combination in a sweep shares
+  // the same pairs, timeframe, and date range, so this fully
+  // populates the cache for the remainder of the run.
+  const isFirstBatch = sweep.status === 'pending'
+  if (isFirstBatch) {
     await service
       .from('backtest_sweeps')
       .update({ status: 'running', run_started_at: new Date().toISOString() })
       .eq('id', sweepId)
+    try {
+      const start = new Date(sweep.date_range_start)
+      const end = new Date(sweep.date_range_end)
+      for (const pair of sweep.pairs) {
+        await ensureCandles(
+          pair,
+          sweep.timeframe as BacktestTimeframe,
+          start,
+          end,
+        )
+      }
+    } catch (error) {
+      // A warmup failure is not fatal: each individual combination
+      // will retry the fetch on its own. Log via error_message and
+      // proceed; the per-run error reporting will surface anything
+      // that ultimately stays broken.
+      const message = error instanceof Error ? error.message : String(error)
+      await service
+        .from('backtest_sweeps')
+        .update({ error_message: `Cache warmup: ${message}` })
+        .eq('id', sweepId)
+    }
   }
 
   const safeBatchSize = Math.max(1, Math.min(10, Math.floor(batchSize)))

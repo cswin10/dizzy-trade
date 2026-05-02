@@ -265,7 +265,7 @@ export default async function BacktestResultPage({
                 <BacktestTrainTestPanel
                   trainMetrics={trainMetrics}
                   testMetrics={testMetrics}
-                  overfitWarning={Boolean(run.overfit_warning_triggered)}
+                  overfitWarning={run.overfit_warning_triggered}
                 />
               ) : null}
 

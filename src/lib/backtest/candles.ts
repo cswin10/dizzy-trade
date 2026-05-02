@@ -21,6 +21,8 @@ import {
 const HYPERLIQUID_INFO_URL = 'https://api.hyperliquid.xyz/info'
 const MAX_CANDLES_PER_REQUEST = 5000
 const INTER_BATCH_DELAY_MS = 80
+const MAX_RETRIES = 5
+const REQUEST_TIMEOUT_MS = 15_000
 
 type RawCandle = {
   t: number
@@ -41,31 +43,77 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+// Retries with exponential backoff on 429 responses, up to MAX_RETRIES
+// attempts. A small random jitter (0-200ms) is added to each backoff
+// so that parallel sweep batches that all trip the rate limit at the
+// same time do not retry in lockstep and re-trip it.
+async function postCandleSnapshot(
+  pair: string,
+  timeframe: BacktestTimeframe,
+  startMs: number,
+  endMs: number,
+): Promise<RawCandle[]> {
+  let lastError: unknown = null
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      const baseDelayMs = 1000 * Math.pow(2, attempt - 1)
+      const jitterMs = Math.floor(Math.random() * 200)
+      await sleep(baseDelayMs + jitterMs)
+    }
+
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+    try {
+      const res = await fetch(HYPERLIQUID_INFO_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'candleSnapshot',
+          req: {
+            coin: pair,
+            interval: timeframe,
+            startTime: startMs,
+            endTime: endMs,
+          },
+        }),
+        signal: controller.signal,
+      })
+      if (res.status === 429) {
+        lastError = new Error('Hyperliquid 429 rate limit')
+        continue
+      }
+      if (!res.ok) {
+        throw new Error(
+          `Hyperliquid candleSnapshot ${res.status} ${res.statusText}`,
+        )
+      }
+      return (await res.json()) as RawCandle[]
+    } catch (error) {
+      lastError = error
+      // Non-429 errors do not retry; fall through to throw.
+      if (
+        error instanceof Error &&
+        !error.message.includes('429') &&
+        error.name !== 'AbortError'
+      ) {
+        throw error
+      }
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('Hyperliquid request failed after retries')
+}
+
 async function fetchCandlesFromHyperliquid(
   pair: string,
   timeframe: BacktestTimeframe,
   startMs: number,
   endMs: number,
 ): Promise<BacktestCandle[]> {
-  const res = await fetch(HYPERLIQUID_INFO_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      type: 'candleSnapshot',
-      req: {
-        coin: pair,
-        interval: timeframe,
-        startTime: startMs,
-        endTime: endMs,
-      },
-    }),
-  })
-  if (!res.ok) {
-    throw new Error(
-      `Hyperliquid candleSnapshot ${res.status} ${res.statusText}`,
-    )
-  }
-  const raw = (await res.json()) as RawCandle[]
+  const raw = await postCandleSnapshot(pair, timeframe, startMs, endMs)
   return raw.map((c) => ({
     pair,
     timeframe,
