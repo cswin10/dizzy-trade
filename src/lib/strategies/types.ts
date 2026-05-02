@@ -89,4 +89,17 @@ export type EvaluationResult = {
   target_price?: number
   triggered_group_index?: number
   condition_values: Record<string, unknown>
+  // Diagnostic-only. Populated when triggered=false: one entry per
+  // entry group recording the condition that caused that group to
+  // fail. Conditions inside a group are AND-ed and the evaluator
+  // short-circuits on the first failing one, so this is the
+  // bottleneck condition for that group on this candle. Consumers
+  // (e.g. the backtest engine's diagnostics) aggregate these across
+  // a run to identify always-failing conditions.
+  group_failures?: Array<{
+    group_index: number
+    condition_index: number
+    condition_type: string
+    insufficient_data: boolean
+  }>
 }

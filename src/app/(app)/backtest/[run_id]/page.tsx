@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 
+import { BacktestDiagnosticsPanel } from '@/components/shared/BacktestDiagnosticsPanel'
 import {
   BacktestEquityCurveChart,
   type EquityCurvePoint,
@@ -22,7 +23,10 @@ import { BacktestTrainTestPanel } from '@/components/shared/BacktestTrainTestPan
 import { PageContainer } from '@/components/shared/PageContainer'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { Button } from '@/components/ui/Button'
-import type { BacktestMetrics } from '@/lib/backtest/types'
+import type {
+  BacktestDiagnostics,
+  BacktestMetrics,
+} from '@/lib/backtest/types'
 import { createClient } from '@/lib/supabase/server'
 
 export const metadata = {
@@ -270,10 +274,17 @@ export default async function BacktestResultPage({
         <div className="flex flex-col gap-6">
           {trades.filter((t) => t.exit_reason !== 'rules_blocked').length ===
           0 ? (
-            <div className="rounded-lg border border-white/[0.06] bg-surface p-8 text-center text-sm text-white/55">
-              Backtest completed but no signals fired in this period. Try a
-              longer date range or different parameters.
-            </div>
+            run.diagnostics ? (
+              <BacktestDiagnosticsPanel
+                diagnostics={run.diagnostics as BacktestDiagnostics}
+                zeroSignals
+              />
+            ) : (
+              <div className="rounded-lg border border-white/[0.06] bg-surface p-8 text-center text-sm text-white/55">
+                Backtest completed but no signals fired in this period. Try a
+                longer date range or different parameters.
+              </div>
+            )
           ) : (
             <>
               <BacktestResultsCards
@@ -331,6 +342,13 @@ export default async function BacktestResultPage({
                 </h2>
                 <BacktestTradesTable trades={trades} />
               </section>
+
+              {run.diagnostics ? (
+                <BacktestDiagnosticsPanel
+                  diagnostics={run.diagnostics as BacktestDiagnostics}
+                  zeroSignals={false}
+                />
+              ) : null}
 
               <details className="rounded-lg border border-white/[0.06] bg-surface p-4 sm:p-5">
                 <summary className="cursor-pointer text-[11px] uppercase tracking-wider text-white/55">

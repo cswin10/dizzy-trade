@@ -690,6 +690,7 @@ export type Database = {
           strategy_definition_id: string | null
           strategy_definition_snapshot: Record<string, unknown> | null
           batch_run_id: string | null
+          diagnostics: Record<string, unknown> | null
         }
         Insert: {
           id?: string
@@ -740,6 +741,7 @@ export type Database = {
           strategy_definition_id?: string | null
           strategy_definition_snapshot?: Record<string, unknown> | null
           batch_run_id?: string | null
+          diagnostics?: Record<string, unknown> | null
         }
         Update: {
           id?: string
@@ -790,6 +792,7 @@ export type Database = {
           strategy_definition_id?: string | null
           strategy_definition_snapshot?: Record<string, unknown> | null
           batch_run_id?: string | null
+          diagnostics?: Record<string, unknown> | null
         }
         Relationships: []
       }

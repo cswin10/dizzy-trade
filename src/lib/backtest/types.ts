@@ -102,11 +102,60 @@ export type SimulatedTrade = {
   conditions_at_signal: Record<string, unknown>
 }
 
+// Per-pair counters captured during a run. Always present in the
+// diagnostics payload, even when a pair produced zero signals.
+export type BacktestDiagnosticsPair = {
+  candles_loaded: number
+  candles_evaluated: number
+  long_evaluations: number
+  short_evaluations: number
+  signals: number
+}
+
+// Structured "what happened" report attached to every backtest run.
+// The UI uses it to explain zero-signal results without making the
+// operator squint at jsonb. Always populated (even on zero-signal
+// or zero-trade runs); never holds undefined fields.
+export type BacktestDiagnostics = {
+  // Warmup window the engine actually used for this run. For
+  // composable strategies this is the dynamic value computed from
+  // the strategy's lookbacks; for legacy frameworks it is the fixed
+  // 60. Compared against warmup_param_max in the UI to flag
+  // strategies whose indicators outsize the warmup.
+  warmup_candles_used: number
+  // The largest indicator-lookback param found in the strategy
+  // definition (period, lookback, slow_period, etc.). Zero for
+  // legacy frameworks, since the engine does not introspect them.
+  warmup_param_max: number
+
+  per_pair: Record<string, BacktestDiagnosticsPair>
+
+  evaluations_total: number
+  evaluations_passed: number
+  evaluations_blocked_by_rules: number
+
+  // {condition_type: count} aggregated across every short-circuited
+  // failing condition seen during the run. Reveals which condition
+  // is the bottleneck of an AND-group.
+  condition_failure_breakdown: Record<string, number>
+  // Subset of condition_failure_breakdown for failures attributed
+  // to insufficient data (NaN indicators, "not enough candles" etc.).
+  // Smoking gun for warmup misconfig.
+  condition_insufficient_data: Record<string, number>
+
+  first_signal_at: string | null
+  last_signal_at: string | null
+  // Source of the diagnostics, kept in case we add a sampling
+  // optimisation later. 'full' means every evaluation was counted.
+  sample_rate: number
+}
+
 export type RunBacktestResult = {
   trades: SimulatedTrade[]
   signals_total: number
   signals_blocked_by_rules: number
   gbp_usd_rate_used: number
+  diagnostics: BacktestDiagnostics
 }
 
 export type BacktestMetrics = {

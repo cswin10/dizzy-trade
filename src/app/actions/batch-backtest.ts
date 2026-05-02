@@ -376,6 +376,16 @@ export type BatchBacktestDetail = {
     sharpe_ratio: number | null
     longest_losing_streak: number | null
     expectancy_per_trade_gbp: number | null
+    // Headline-only summary for the leaderboard's zero-signal
+    // indicator. Full diagnostics live on the detail page.
+    diagnostics_summary: {
+      evaluations_total: number
+      warmup_candles_used: number
+      warmup_param_max: number
+      top_failure_type: string | null
+      top_failure_count: number
+      top_failure_insufficient_data: boolean
+    } | null
   }>
 }
 
@@ -397,7 +407,7 @@ export async function getBatchBacktestAction(
     service
       .from('backtest_runs')
       .select(
-        'id, name, status, framework_id, strategy_definition_id, total_trades, wins, losses, win_rate, avg_r, total_pnl_gbp, max_drawdown_gbp, sharpe_ratio, longest_losing_streak, expectancy_per_trade_gbp',
+        'id, name, status, framework_id, strategy_definition_id, total_trades, wins, losses, win_rate, avg_r, total_pnl_gbp, max_drawdown_gbp, sharpe_ratio, longest_losing_streak, expectancy_per_trade_gbp, diagnostics',
       )
       .eq('batch_run_id', id)
       .order('total_pnl_gbp', { ascending: false, nullsFirst: false }),
@@ -445,8 +455,55 @@ export async function getBatchBacktestAction(
           row.expectancy_per_trade_gbp == null
             ? null
             : Number(row.expectancy_per_trade_gbp),
+        diagnostics_summary: summariseDiagnostics(row.diagnostics),
       })),
     },
+  }
+}
+
+// Reduces the full BacktestDiagnostics payload to the headline
+// fields the leaderboard actually renders. Keeps the leaderboard
+// query response small while still letting the UI explain why a
+// run produced zero signals without a second round trip.
+function summariseDiagnostics(
+  raw: unknown,
+): BatchBacktestDetail['runs'][number]['diagnostics_summary'] {
+  if (!raw || typeof raw !== 'object') return null
+  const d = raw as {
+    evaluations_total?: unknown
+    warmup_candles_used?: unknown
+    warmup_param_max?: unknown
+    condition_failure_breakdown?: unknown
+    condition_insufficient_data?: unknown
+  }
+  const breakdown =
+    d.condition_failure_breakdown && typeof d.condition_failure_breakdown === 'object'
+      ? (d.condition_failure_breakdown as Record<string, number>)
+      : {}
+  const insufficient =
+    d.condition_insufficient_data && typeof d.condition_insufficient_data === 'object'
+      ? (d.condition_insufficient_data as Record<string, number>)
+      : {}
+  let topType: string | null = null
+  let topCount = 0
+  for (const [type, count] of Object.entries(breakdown)) {
+    if (typeof count === 'number' && count > topCount) {
+      topType = type
+      topCount = count
+    }
+  }
+  return {
+    evaluations_total:
+      typeof d.evaluations_total === 'number' ? d.evaluations_total : 0,
+    warmup_candles_used:
+      typeof d.warmup_candles_used === 'number' ? d.warmup_candles_used : 0,
+    warmup_param_max:
+      typeof d.warmup_param_max === 'number' ? d.warmup_param_max : 0,
+    top_failure_type: topType,
+    top_failure_count: topCount,
+    top_failure_insufficient_data:
+      topType !== null &&
+      (insufficient[topType] ?? 0) > topCount / 2,
   }
 }
 

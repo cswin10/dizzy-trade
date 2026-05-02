@@ -213,6 +213,9 @@ export function evaluateStrategy(
   context: EvaluationContext,
 ): EvaluationResult {
   const conditionValues: Record<string, unknown> = {}
+  // Captures, per group, the condition that caused the group to
+  // fail. Lazy-allocated so triggered runs don't pay for it.
+  let groupFailures: EvaluationResult['group_failures']
 
   for (let gi = 0; gi < definition.entry.groups.length; gi++) {
     const group = definition.entry.groups[gi]!
@@ -233,6 +236,27 @@ export function evaluateStrategy(
           }
         }
         if (!result.passed) {
+          // Reasons like 'not enough candles' / 'no sma' / 'no atr'
+          // / 'not enough atr history' are surfaced by the condition
+          // library when an indicator could not be computed (NaN).
+          // Treat any reason starting with "not enough" or matching
+          // those known phrases as insufficient_data; everything
+          // else is a "real" failure (threshold not crossed, wrong
+          // side of EMA, etc.).
+          const reason = result.values?.reason
+          const insufficientData =
+            typeof reason === 'string' &&
+            (reason.startsWith('not enough') ||
+              reason === 'no sma' ||
+              reason === 'no atr' ||
+              reason === 'no reference')
+          if (!groupFailures) groupFailures = []
+          groupFailures.push({
+            group_index: gi,
+            condition_index: ci,
+            condition_type: condition.type,
+            insufficient_data: insufficientData,
+          })
           allPassed = false
           break
         }
@@ -268,7 +292,11 @@ export function evaluateStrategy(
     }
   }
 
-  return { triggered: false, condition_values: conditionValues }
+  return {
+    triggered: false,
+    condition_values: conditionValues,
+    ...(groupFailures ? { group_failures: groupFailures } : {}),
+  }
 }
 
 // Re-export Candle type for external consumers building an
