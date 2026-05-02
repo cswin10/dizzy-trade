@@ -11,7 +11,7 @@ import { deleteBacktestRunAction } from '@/app/actions/backtest'
 export type BacktestRunSummary = {
   id: string
   name: string
-  status: 'pending' | 'running' | 'completed' | 'failed'
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
   framework_id: string
   timeframe: string
   pairs: string[]
@@ -30,6 +30,7 @@ const statusClass: Record<BacktestRunSummary['status'], string> = {
   running: 'bg-amber-500/15 text-amber-300',
   completed: 'bg-emerald-500/15 text-emerald-300',
   failed: 'bg-red-500/15 text-red-300',
+  cancelled: 'bg-white/10 text-white/45',
 }
 
 function formatGbp(value: number | null): string {

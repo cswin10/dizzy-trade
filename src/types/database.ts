@@ -606,7 +606,7 @@ export type Database = {
           assume_taker: boolean
           enable_train_test_split: boolean
           train_split_pct: number
-          status: 'pending' | 'running' | 'completed' | 'failed'
+          status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
           error_message: string | null
           run_started_at: string | null
           run_completed_at: string | null
@@ -627,6 +627,9 @@ export type Database = {
           test_metrics: Record<string, unknown> | null
           overfit_warning_triggered: boolean | null
           gbp_usd_rate_used: number | null
+          sweep_id: string | null
+          sweep_combination_index: number | null
+          sweep_combination_values: Record<string, unknown> | null
         }
         Insert: {
           id?: string
@@ -650,7 +653,7 @@ export type Database = {
           assume_taker?: boolean
           enable_train_test_split?: boolean
           train_split_pct?: number
-          status?: 'pending' | 'running' | 'completed' | 'failed'
+          status?: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
           error_message?: string | null
           run_started_at?: string | null
           run_completed_at?: string | null
@@ -671,6 +674,9 @@ export type Database = {
           test_metrics?: Record<string, unknown> | null
           overfit_warning_triggered?: boolean | null
           gbp_usd_rate_used?: number | null
+          sweep_id?: string | null
+          sweep_combination_index?: number | null
+          sweep_combination_values?: Record<string, unknown> | null
         }
         Update: {
           id?: string
@@ -694,7 +700,7 @@ export type Database = {
           assume_taker?: boolean
           enable_train_test_split?: boolean
           train_split_pct?: number
-          status?: 'pending' | 'running' | 'completed' | 'failed'
+          status?: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
           error_message?: string | null
           run_started_at?: string | null
           run_completed_at?: string | null
@@ -715,6 +721,96 @@ export type Database = {
           test_metrics?: Record<string, unknown> | null
           overfit_warning_triggered?: boolean | null
           gbp_usd_rate_used?: number | null
+          sweep_id?: string | null
+          sweep_combination_index?: number | null
+          sweep_combination_values?: Record<string, unknown> | null
+        }
+        Relationships: []
+      }
+      backtest_sweeps: {
+        Row: {
+          id: string
+          tenant_id: string
+          name: string
+          created_at: string | null
+          framework_id: string
+          timeframe: string
+          pairs: string[]
+          date_range_start: string
+          date_range_end: string
+          max_concurrent_positions: number
+          max_daily_loss_gbp: number | null
+          max_consecutive_losers: number | null
+          slippage_pct: number
+          maker_fee_pct: number
+          taker_fee_pct: number
+          assume_taker: boolean
+          enable_train_test_split: boolean
+          train_split_pct: number
+          sweep_dimensions: unknown
+          total_combinations: number
+          status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+          combinations_completed: number
+          combinations_failed: number
+          run_started_at: string | null
+          run_completed_at: string | null
+          error_message: string | null
+        }
+        Insert: {
+          id?: string
+          tenant_id: string
+          name: string
+          created_at?: string | null
+          framework_id: string
+          timeframe: string
+          pairs: string[]
+          date_range_start: string
+          date_range_end: string
+          max_concurrent_positions: number
+          max_daily_loss_gbp?: number | null
+          max_consecutive_losers?: number | null
+          slippage_pct: number
+          maker_fee_pct: number
+          taker_fee_pct: number
+          assume_taker: boolean
+          enable_train_test_split: boolean
+          train_split_pct: number
+          sweep_dimensions: unknown
+          total_combinations: number
+          status?: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+          combinations_completed?: number
+          combinations_failed?: number
+          run_started_at?: string | null
+          run_completed_at?: string | null
+          error_message?: string | null
+        }
+        Update: {
+          id?: string
+          tenant_id?: string
+          name?: string
+          created_at?: string | null
+          framework_id?: string
+          timeframe?: string
+          pairs?: string[]
+          date_range_start?: string
+          date_range_end?: string
+          max_concurrent_positions?: number
+          max_daily_loss_gbp?: number | null
+          max_consecutive_losers?: number | null
+          slippage_pct?: number
+          maker_fee_pct?: number
+          taker_fee_pct?: number
+          assume_taker?: boolean
+          enable_train_test_split?: boolean
+          train_split_pct?: number
+          sweep_dimensions?: unknown
+          total_combinations?: number
+          status?: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+          combinations_completed?: number
+          combinations_failed?: number
+          run_started_at?: string | null
+          run_completed_at?: string | null
+          error_message?: string | null
         }
         Relationships: []
       }
