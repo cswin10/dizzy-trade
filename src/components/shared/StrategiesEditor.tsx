@@ -41,6 +41,7 @@ const FRAMEWORK_OPTIONS: FrameworkOption[] = [
   { id: 'mean_reversion_v1', label: 'Mean Reversion' },
   { id: 'narrative_breakout_v1', label: 'Narrative Breakout' },
   { id: 'liquidation_hunt_v1', label: 'Liquidation Hunt' },
+  { id: 'simple_rsi_v1', label: 'Simple RSI' },
 ]
 
 export type StrategiesEditorProps = {

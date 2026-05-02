@@ -20,12 +20,14 @@ const FRAMEWORK_ORDER = [
   'liquidation_hunt_v1',
   'narrative_breakout_v1',
   'mean_reversion_v1',
+  'simple_rsi_v1',
 ] as const
 
 const FRAMEWORK_TITLES: Record<string, string> = {
   liquidation_hunt_v1: 'Liquidation hunt',
   narrative_breakout_v1: 'Narrative breakout',
   mean_reversion_v1: 'Mean reversion',
+  simple_rsi_v1: 'Simple RSI',
 }
 
 const relativeFormatter = new Intl.RelativeTimeFormat('en-GB', {

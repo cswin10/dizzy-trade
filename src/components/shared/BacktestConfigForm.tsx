@@ -18,6 +18,7 @@ const FRAMEWORK_OPTIONS = [
   { id: 'mean_reversion_v1', name: 'Mean Reversion' },
   { id: 'narrative_breakout_v1', name: 'Narrative Breakout' },
   { id: 'liquidation_hunt_v1', name: 'Liquidation Hunt' },
+  { id: 'simple_rsi_v1', name: 'Simple RSI' },
 ] as const
 
 const FRAMEWORK_DEFAULTS: Record<string, Record<string, number>> = {
@@ -49,6 +50,13 @@ const FRAMEWORK_DEFAULTS: Record<string, Record<string, number>> = {
     wick_to_body_ratio: 1.5,
     stop_buffer: 0.002,
     target_rr_multiple: 2.0,
+  },
+  simple_rsi_v1: {
+    rsi_period: 14,
+    rsi_oversold: 30,
+    rsi_overbought: 70,
+    stop_pct: 1.0,
+    target_pct: 2.0,
   },
 }
 
