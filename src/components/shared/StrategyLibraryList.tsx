@@ -15,6 +15,7 @@ import {
 } from '@/app/actions/strategy-definitions'
 import { toggleStrategyActiveAction } from '@/app/actions/strategies'
 
+import { BatchSelectActionBar } from './BatchSelectActionBar'
 import { ConfirmDialog } from './ConfirmDialog'
 
 export type StrategyLibraryListProps = {
@@ -52,6 +53,28 @@ export function StrategyLibraryList({ rows }: StrategyLibraryListProps) {
   const [pendingDelete, setPendingDelete] = useState<StrategyLibraryRow | null>(
     null,
   )
+  // Compare mode renders a checkbox per row and a sticky action
+  // bar at the bottom of the viewport when at least two rows are
+  // ticked. The action bar hands the selection to /backtest/batch/new
+  // via query params.
+  const [compareMode, setCompareMode] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+
+  function toggleRowSelected(row: StrategyLibraryRow) {
+    const key = `${row.source}:${row.id}`
+    setSelected((current) => {
+      const next = new Set(current)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+  const selectedComposable = Array.from(selected)
+    .filter((k) => k.startsWith('composable:'))
+    .map((k) => k.slice('composable:'.length))
+  const selectedLegacy = Array.from(selected)
+    .filter((k) => k.startsWith('framework:'))
+    .map((k) => k.slice('framework:'.length))
 
   const currentlyActive = useMemo(
     () => rows.find((row) => row.is_active) ?? null,
@@ -176,6 +199,21 @@ export function StrategyLibraryList({ rows }: StrategyLibraryListProps) {
         <span className="ml-auto text-xs text-white/45">
           {filtered.length} of {rows.length}
         </span>
+        <button
+          type="button"
+          onClick={() => {
+            setCompareMode((v) => !v)
+            setSelected(new Set())
+          }}
+          className={twMerge(
+            'rounded-full border px-3 py-1 text-xs transition-colors',
+            compareMode
+              ? 'border-accent bg-accent/15 text-white'
+              : 'border-white/10 text-white/55 hover:border-white/20 hover:text-white',
+          )}
+        >
+          {compareMode ? 'Exit compare mode' : 'Compare strategies'}
+        </button>
       </div>
 
       {error ? (
@@ -184,12 +222,21 @@ export function StrategyLibraryList({ rows }: StrategyLibraryListProps) {
         </div>
       ) : null}
 
-      <ul className="flex flex-col gap-2">
+      <ul className={twMerge('flex flex-col gap-2', compareMode && 'pb-20')}>
         {filtered.map((row) => (
           <li
             key={`${row.source}:${row.id}`}
             className="flex items-center gap-3 rounded-lg border border-white/[0.06] bg-surface px-4 py-3 transition-colors hover:border-white/10 hover:bg-surface-2"
           >
+            {compareMode ? (
+              <input
+                type="checkbox"
+                aria-label={`Select ${row.name}`}
+                checked={selected.has(`${row.source}:${row.id}`)}
+                onChange={() => toggleRowSelected(row)}
+                disabled={row.is_archived}
+              />
+            ) : null}
             <Link
               href={
                 row.source === 'composable'
@@ -284,6 +331,14 @@ export function StrategyLibraryList({ rows }: StrategyLibraryListProps) {
           </li>
         ))}
       </ul>
+
+      {compareMode ? (
+        <BatchSelectActionBar
+          selectedComposable={selectedComposable}
+          selectedLegacy={selectedLegacy}
+          onClear={() => setSelected(new Set())}
+        />
+      ) : null}
 
       <ConfirmDialog
         open={pendingActivate !== null}
