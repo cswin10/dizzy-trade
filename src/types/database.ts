@@ -486,6 +486,12 @@ export type Database = {
           is_archived: boolean
           created_at: string | null
           updated_at: string | null
+          is_active: boolean
+          pairs: string[]
+          timeframe: string
+          max_concurrent_positions: number
+          max_daily_loss_gbp: number | null
+          max_consecutive_losers: number | null
         }
         Insert: {
           id?: string
@@ -497,6 +503,12 @@ export type Database = {
           is_archived?: boolean
           created_at?: string | null
           updated_at?: string | null
+          is_active?: boolean
+          pairs?: string[]
+          timeframe?: string
+          max_concurrent_positions?: number
+          max_daily_loss_gbp?: number | null
+          max_consecutive_losers?: number | null
         }
         Update: {
           id?: string
@@ -508,6 +520,12 @@ export type Database = {
           is_archived?: boolean
           created_at?: string | null
           updated_at?: string | null
+          is_active?: boolean
+          pairs?: string[]
+          timeframe?: string
+          max_concurrent_positions?: number
+          max_daily_loss_gbp?: number | null
+          max_consecutive_losers?: number | null
         }
         Relationships: []
       }
@@ -562,6 +580,7 @@ export type Database = {
           gbp_usd_rate: number | null
           rules_status: 'passed' | 'blocked' | 'warning' | null
           rules_violations: unknown
+          alert_source: 'framework' | 'composable'
         }
         Insert: {
           id?: string
@@ -589,6 +608,7 @@ export type Database = {
           gbp_usd_rate?: number | null
           rules_status?: 'passed' | 'blocked' | 'warning' | null
           rules_violations?: unknown
+          alert_source?: 'framework' | 'composable'
         }
         Update: {
           id?: string
@@ -616,6 +636,7 @@ export type Database = {
           gbp_usd_rate?: number | null
           rules_status?: 'passed' | 'blocked' | 'warning' | null
           rules_violations?: unknown
+          alert_source?: 'framework' | 'composable'
         }
         Relationships: []
       }

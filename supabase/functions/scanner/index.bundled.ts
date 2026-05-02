@@ -1,5 +1,5 @@
 // AUTO-GENERATED. Do not edit. Run `npm run bundle:scanner` to regenerate.
-// Generated: 2026-05-02T06:40:58.985Z
+// Generated: 2026-05-02T11:36:06.518Z
 //
 // Source files (in dependency order):
 //   supabase/functions/_shared/hyperliquid.ts
@@ -16,6 +16,40 @@
 //   supabase/functions/_shared/hyperliquid_user.ts
 //   supabase/functions/_shared/position_sizing.ts
 //   supabase/functions/_shared/timeframes.ts
+//   supabase/functions/_shared/strategies/types.ts
+//   supabase/functions/_shared/active-strategy.ts
+//   supabase/functions/_shared/strategies/evaluator.ts
+//   supabase/functions/_shared/strategies/conditions/_helpers.ts
+//   supabase/functions/_shared/strategies/conditions/rsi_threshold.ts
+//   supabase/functions/_shared/strategies/conditions/rsi_crossing.ts
+//   supabase/functions/_shared/strategies/conditions/stochastic_threshold.ts
+//   supabase/functions/_shared/strategies/conditions/williams_r_threshold.ts
+//   supabase/functions/_shared/strategies/conditions/sma_position.ts
+//   supabase/functions/_shared/strategies/conditions/ema_position.ts
+//   supabase/functions/_shared/strategies/conditions/sma_distance.ts
+//   supabase/functions/_shared/strategies/conditions/sma_crossover.ts
+//   supabase/functions/_shared/strategies/conditions/volume_ratio.ts
+//   supabase/functions/_shared/strategies/conditions/volume_threshold.ts
+//   supabase/functions/_shared/strategies/conditions/atr_threshold.ts
+//   supabase/functions/_shared/strategies/conditions/atr_ratio.ts
+//   supabase/functions/_shared/strategies/conditions/bollinger_position.ts
+//   supabase/functions/_shared/strategies/conditions/near_recent_high.ts
+//   supabase/functions/_shared/strategies/conditions/near_recent_low.ts
+//   supabase/functions/_shared/strategies/conditions/candle_close_above.ts
+//   supabase/functions/_shared/strategies/conditions/level_proximity.ts
+//   supabase/functions/_shared/strategies/conditions/bullish_candle.ts
+//   supabase/functions/_shared/strategies/conditions/bearish_candle.ts
+//   supabase/functions/_shared/strategies/conditions/wick_ratio.ts
+//   supabase/functions/_shared/strategies/conditions/close_position.ts
+//   supabase/functions/_shared/strategies/conditions/hour_of_day.ts
+//   supabase/functions/_shared/strategies/conditions/day_of_week.ts
+//   supabase/functions/_shared/strategies/conditions/funding_threshold.ts
+//   supabase/functions/_shared/strategies/conditions/index.ts
+//   supabase/functions/_shared/strategies/exit-rules/atr_multiple_stop.ts
+//   supabase/functions/_shared/strategies/exit-rules/recent_swing_stop.ts
+//   supabase/functions/_shared/strategies/exit-rules/atr_multiple_target.ts
+//   supabase/functions/_shared/strategies/exit-rules/index.ts
+//   supabase/functions/_shared/strategies/register.ts
 //   supabase/functions/scanner/index.ts
 //
 // Paste this entire file into the Supabase dashboard scanner Edge
@@ -1075,6 +1109,161 @@ function candleClosePosition(c: Candle): number {
   return (c.c - c.l) / range
 }
 
+/**
+ * Exponential moving average. Mirrors src/lib/technical.ts.
+ */
+function ema(values: number[], period: number): number {
+  if (period <= 0 || values.length < period) return NaN
+  const k = 2 / (period + 1)
+  let avg = 0
+  for (let i = 0; i < period; i++) avg += values[i]!
+  avg /= period
+  for (let i = period; i < values.length; i++) {
+    avg = values[i]! * k + avg * (1 - k)
+  }
+  return avg
+}
+
+function emaSeries(values: number[], period: number): number[] {
+  const out: number[] = []
+  if (period <= 0 || values.length < period) return out
+  const k = 2 / (period + 1)
+  let avg = 0
+  for (let i = 0; i < period; i++) avg += values[i]!
+  avg /= period
+  out.push(avg)
+  for (let i = period; i < values.length; i++) {
+    avg = values[i]! * k + avg * (1 - k)
+    out.push(avg)
+  }
+  return out
+}
+
+/**
+ * Wilder-smoothed average true range.
+ */
+function atr(candles: Candle[], period: number): number {
+  if (period <= 0 || candles.length <= period) return NaN
+  const trueRanges: number[] = []
+  for (let i = 1; i < candles.length; i++) {
+    const cur = candles[i]!
+    const prev = candles[i - 1]!
+    const tr = Math.max(
+      cur.h - cur.l,
+      Math.abs(cur.h - prev.c),
+      Math.abs(cur.l - prev.c),
+    )
+    trueRanges.push(tr)
+  }
+  let avg = 0
+  for (let i = 0; i < period; i++) avg += trueRanges[i]!
+  avg /= period
+  for (let i = period; i < trueRanges.length; i++) {
+    avg = (avg * (period - 1) + trueRanges[i]!) / period
+  }
+  return avg
+}
+
+function atrSeries(candles: Candle[], period: number): number[] {
+  const out: number[] = []
+  if (period <= 0 || candles.length <= period) return out
+  const trueRanges: number[] = []
+  for (let i = 1; i < candles.length; i++) {
+    const cur = candles[i]!
+    const prev = candles[i - 1]!
+    trueRanges.push(
+      Math.max(
+        cur.h - cur.l,
+        Math.abs(cur.h - prev.c),
+        Math.abs(cur.l - prev.c),
+      ),
+    )
+  }
+  let avg = 0
+  for (let i = 0; i < period; i++) avg += trueRanges[i]!
+  avg /= period
+  out.push(avg)
+  for (let i = period; i < trueRanges.length; i++) {
+    avg = (avg * (period - 1) + trueRanges[i]!) / period
+    out.push(avg)
+  }
+  return out
+}
+
+function bollinger(
+  closes: number[],
+  period: number,
+  stdDevMultiple: number,
+): { upper: number; middle: number; lower: number } | null {
+  if (period <= 0 || closes.length < period) return null
+  const window = closes.slice(closes.length - period)
+  const mean = window.reduce((a, b) => a + b, 0) / period
+  const variance = window.reduce((sum, x) => sum + (x - mean) ** 2, 0) / period
+  const sd = Math.sqrt(variance)
+  return {
+    upper: mean + sd * stdDevMultiple,
+    middle: mean,
+    lower: mean - sd * stdDevMultiple,
+  }
+}
+
+function stochastic(
+  candles: Candle[],
+  kPeriod: number,
+  dPeriod: number,
+  smooth: number,
+): { k: number; d: number; kPrev: number; dPrev: number } | null {
+  if (kPeriod <= 0 || dPeriod <= 0 || smooth <= 0) return null
+  if (candles.length < kPeriod + smooth + dPeriod) return null
+  const rawK: number[] = []
+  for (let i = kPeriod - 1; i < candles.length; i++) {
+    let highest = -Infinity
+    let lowest = Infinity
+    for (let j = i - kPeriod + 1; j <= i; j++) {
+      const c = candles[j]!
+      if (c.h > highest) highest = c.h
+      if (c.l < lowest) lowest = c.l
+    }
+    const range = highest - lowest
+    const close = candles[i]!.c
+    rawK.push(range === 0 ? 50 : ((close - lowest) / range) * 100)
+  }
+  const smoothedK: number[] = []
+  for (let i = smooth - 1; i < rawK.length; i++) {
+    let s = 0
+    for (let j = i - smooth + 1; j <= i; j++) s += rawK[j]!
+    smoothedK.push(s / smooth)
+  }
+  const dValues: number[] = []
+  for (let i = dPeriod - 1; i < smoothedK.length; i++) {
+    let s = 0
+    for (let j = i - dPeriod + 1; j <= i; j++) s += smoothedK[j]!
+    dValues.push(s / dPeriod)
+  }
+  if (smoothedK.length < 2 || dValues.length < 2) return null
+  return {
+    k: smoothedK[smoothedK.length - 1]!,
+    kPrev: smoothedK[smoothedK.length - 2]!,
+    d: dValues[dValues.length - 1]!,
+    dPrev: dValues[dValues.length - 2]!,
+  }
+}
+
+function williamsR(candles: Candle[], period: number): number {
+  if (period <= 0 || candles.length < period) return NaN
+  let highest = -Infinity
+  let lowest = Infinity
+  for (let i = candles.length - period; i < candles.length; i++) {
+    const c = candles[i]!
+    if (c.h > highest) highest = c.h
+    if (c.l < lowest) lowest = c.l
+  }
+  const range = highest - lowest
+  if (range === 0) return -50
+  const close = candles[candles.length - 1]!.c
+  return ((highest - close) / range) * -100
+}
+
 // ---------------------------------------------------------------------
 // supabase/functions/_shared/frameworks/narrative_breakout.ts
 // ---------------------------------------------------------------------
@@ -1933,6 +2122,1266 @@ function nextCandleClose(
 }
 
 // ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/types.ts
+// ---------------------------------------------------------------------
+
+// Composable strategy types.
+//
+// A strategy definition is a JSON document describing entry, exit,
+// and sizing for a trading strategy. Conditions inside an entry
+// group are AND-ed; groups are OR-ed against each other so a single
+// strategy can express several distinct setups (e.g. a long setup
+// and a short setup, or two different long setups).
+//
+// Condition shapes are open-ended on purpose. Each Condition.type
+// names an evaluator registered in the evaluator engine; the
+// evaluator owns its parameter schema and its evaluation logic.
+// Adding a new condition type is a matter of writing the evaluator
+// and the matching zod schema and registering them, no edits to
+// these types or the engine core.
+
+
+type StrategyDirection = 'long_only' | 'short_only' | 'both'
+
+type Condition = {
+  type: string
+  params: Record<string, unknown>
+}
+
+type EntryGroup = {
+  // Required even on 'both' strategies so each group declares which
+  // direction it is testing for. Mixing long and short conditions
+  // inside one group is meaningless; this field forces the
+  // disambiguation up front.
+  direction: 'long' | 'short'
+  conditions: Condition[]
+}
+
+type StopRule =
+  | { type: 'fixed_pct'; pct: number }
+  | { type: 'atr_multiple'; period: number; multiple: number }
+  | { type: 'recent_swing'; lookback_candles: number; buffer_pct?: number }
+
+type TargetRule =
+  | { type: 'fixed_pct'; pct: number }
+  | { type: 'fixed_rr'; rr: number }
+  | { type: 'atr_multiple'; period: number; multiple: number }
+
+type SizingRule =
+  | { type: 'fixed_gbp_risk'; amount: number }
+  | { type: 'fixed_position_size'; size: number }
+
+type StrategyDefinition = {
+  schema_version: 1
+  name: string
+  description?: string
+  direction: StrategyDirection
+  entry: {
+    groups: EntryGroup[]
+  }
+  exit: {
+    stop: StopRule
+    target: TargetRule
+    timeout_candles?: number
+  }
+  sizing: SizingRule
+  metadata?: Record<string, unknown>
+}
+
+// Runtime context handed to the evaluator when it walks a candle.
+// candles ends with currentCandle: backtest semantics treat the
+// current bar's close as the decision point, so anything beyond
+// candles[candles.length - 1] would be lookahead.
+type EvaluationContext = {
+  candles: Candle[]
+  currentCandle: Candle
+  currentPrice: number
+  funding?: number
+  openInterest?: number
+}
+
+type ConditionEvaluationResult = {
+  passed: boolean
+  // Free-form values surfaced for debugging and for the
+  // conditions_at_signal column on backtest_trades / alerts.
+  values?: Record<string, unknown>
+}
+
+type EvaluationResult = {
+  triggered: boolean
+  direction?: 'long' | 'short'
+  entry_price?: number
+  stop_price?: number
+  target_price?: number
+  triggered_group_index?: number
+  condition_values: Record<string, unknown>
+}
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/active-strategy.ts
+// ---------------------------------------------------------------------
+
+// Deno mirror of src/lib/active-strategy.ts.
+//
+// At scanner time we resolve the single active strategy from
+// either the legacy public.strategies table or the composable
+// public.strategy_definitions table. When both have an active
+// row the composable side wins; we log the inconsistency so the
+// operator can correct it.
+
+
+type ActiveStrategySource = 'framework' | 'composable'
+
+type ActiveStrategy = {
+  source: ActiveStrategySource
+  id: string
+  tenant_id: string | null
+  name: string
+  pairs: string[]
+  timeframe: string
+  risk_amount_gbp: number | null
+  min_rr: number | null
+  max_concurrent_positions: number
+  max_daily_loss_gbp: number | null
+  max_consecutive_losers: number | null
+  framework: { id: string; thresholds: Record<string, number> } | null
+  definition: StrategyDefinition | null
+}
+
+// Loosely typed Supabase client surface so this file can be
+// imported by code that has built its own client without forcing
+// a specific generic shape on every caller.
+type SupabaseLike = {
+  from: (table: string) => {
+    select: (cols: string) => {
+      eq: (
+        col: string,
+        value: unknown,
+      ) => {
+        eq?: (col: string, value: unknown) => unknown
+        limit: (
+          n: number,
+        ) => Promise<{
+          data: Record<string, unknown>[] | null
+          error: { message: string } | null
+        }>
+      }
+    }
+  }
+}
+
+// Loads the active strategy for the operator. The legacy
+// strategies table has a partial unique index enforcing one
+// active row globally (single-tenant deployment), and the new
+// strategy_definitions table enforces one active per tenant. For
+// v1's single-tenant world we treat both as global.
+async function loadActiveStrategy(
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
+): Promise<ActiveStrategy | null> {
+  const [legacyRes, composableRes] = await Promise.all([
+    supabase
+      .from('strategies')
+      .select(
+        'id, name, framework_id, timeframe, pair_symbols, risk_amount_gbp, min_rr, max_concurrent_positions, max_daily_loss_gbp, max_consecutive_losers',
+      )
+      .eq('is_active', true)
+      .limit(1),
+    supabase
+      .from('strategy_definitions')
+      .select(
+        'id, tenant_id, name, definition, pairs, timeframe, max_concurrent_positions, max_daily_loss_gbp, max_consecutive_losers',
+      )
+      .eq('is_active', true)
+      .eq('is_archived', false)
+      .limit(1),
+  ])
+
+  const legacyRow = legacyRes.data?.[0] ?? null
+  const composableRow = composableRes.data?.[0] ?? null
+
+  if (legacyRow && composableRow) {
+    console.warn(
+      `[active-strategy] BOTH a legacy strategies row (${legacyRow.id}) and ` +
+        `a composable strategy_definitions row (${composableRow.id}) are ` +
+        'marked active. Preferring composable.',
+    )
+  }
+
+  if (composableRow) {
+    return {
+      source: 'composable',
+      id: composableRow.id,
+      tenant_id: composableRow.tenant_id ?? null,
+      name: composableRow.name,
+      pairs: composableRow.pairs ?? [],
+      timeframe: composableRow.timeframe,
+      risk_amount_gbp: null,
+      min_rr: null,
+      max_concurrent_positions: composableRow.max_concurrent_positions,
+      max_daily_loss_gbp:
+        composableRow.max_daily_loss_gbp == null
+          ? null
+          : Number(composableRow.max_daily_loss_gbp),
+      max_consecutive_losers: composableRow.max_consecutive_losers,
+      framework: null,
+      definition: composableRow.definition as StrategyDefinition,
+    }
+  }
+
+  if (legacyRow) {
+    return {
+      source: 'framework',
+      id: legacyRow.id,
+      tenant_id: null,
+      name: legacyRow.name,
+      pairs: legacyRow.pair_symbols ?? [],
+      timeframe: legacyRow.timeframe,
+      risk_amount_gbp:
+        legacyRow.risk_amount_gbp == null
+          ? null
+          : Number(legacyRow.risk_amount_gbp),
+      min_rr: legacyRow.min_rr == null ? null : Number(legacyRow.min_rr),
+      max_concurrent_positions: legacyRow.max_concurrent_positions,
+      max_daily_loss_gbp:
+        legacyRow.max_daily_loss_gbp == null
+          ? null
+          : Number(legacyRow.max_daily_loss_gbp),
+      max_consecutive_losers: legacyRow.max_consecutive_losers,
+      framework: { id: legacyRow.framework_id, thresholds: {} },
+      definition: null,
+    }
+  }
+
+  return null
+}
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/evaluator.ts
+// ---------------------------------------------------------------------
+
+// Strategy evaluator engine.
+//
+// Walks a validated StrategyDefinition against a single
+// EvaluationContext (the latest candle plus its trailing window).
+// Returns whether a signal fires, which group fired, and the
+// computed entry / stop / target prices.
+//
+// The engine is registry-driven. Condition evaluators, stop
+// evaluators, and target evaluators register themselves at module
+// load via the helpers exported below; the engine never knows
+// which conditions exist. This keeps the engine stable while the
+// condition library evolves.
+//
+// 20a registers only the simplest stop and target evaluators
+// (fixed_pct stop, fixed_pct / fixed_rr target) plus the empty
+// condition list case. The full library lands in 20b.
+
+
+
+// --- Registries -------------------------------------------------
+
+type ConditionEvaluator = (
+  condition: Condition,
+  context: EvaluationContext,
+  direction: 'long' | 'short',
+) => ConditionEvaluationResult
+
+type StopEvaluator = (
+  rule: StopRule,
+  context: EvaluationContext,
+  direction: 'long' | 'short',
+  entryPrice: number,
+) => number
+
+type TargetEvaluator = (
+  rule: TargetRule,
+  context: EvaluationContext,
+  direction: 'long' | 'short',
+  entryPrice: number,
+  stopPrice: number,
+) => number
+
+type SizingComputer = (
+  rule: SizingRule,
+  riskPriceDistance: number,
+  entryPrice: number,
+  gbpUsdRate: number,
+) => { sizeCoin: number; sizeUsd: number }
+
+const conditionEvaluators = new Map<string, ConditionEvaluator>()
+const stopEvaluators = new Map<string, StopEvaluator>()
+const targetEvaluators = new Map<string, TargetEvaluator>()
+const sizingComputers = new Map<string, SizingComputer>()
+
+function registerConditionEvaluator(
+  type: string,
+  fn: ConditionEvaluator,
+): void {
+  conditionEvaluators.set(type, fn)
+}
+
+function registerStopEvaluator(type: string, fn: StopEvaluator): void {
+  stopEvaluators.set(type, fn)
+}
+
+function registerTargetEvaluator(
+  type: string,
+  fn: TargetEvaluator,
+): void {
+  targetEvaluators.set(type, fn)
+}
+
+function registerSizingComputer(type: string, fn: SizingComputer): void {
+  sizingComputers.set(type, fn)
+}
+
+// --- Built-in stop/target/sizing evaluators ---------------------
+
+// Pulls the stop a fixed percentage below (long) or above (short)
+// the entry. Smallest possible useful evaluator and the one the
+// stub fixture exercises.
+registerStopEvaluator('fixed_pct', (rule, _ctx, direction, entryPrice) => {
+  if (rule.type !== 'fixed_pct') {
+    throw new Error('fixed_pct stop evaluator received wrong rule type')
+  }
+  const factor = rule.pct / 100
+  return direction === 'long'
+    ? entryPrice * (1 - factor)
+    : entryPrice * (1 + factor)
+})
+
+registerTargetEvaluator('fixed_pct', (rule, _ctx, direction, entryPrice) => {
+  if (rule.type !== 'fixed_pct') {
+    throw new Error('fixed_pct target evaluator received wrong rule type')
+  }
+  const factor = rule.pct / 100
+  return direction === 'long'
+    ? entryPrice * (1 + factor)
+    : entryPrice * (1 - factor)
+})
+
+// fixed_rr targets the entry plus N times the stop distance, on the
+// opposite side of the stop. Mirror logic for shorts. Encodes the
+// "1:N risk/reward" idea precisely.
+registerTargetEvaluator(
+  'fixed_rr',
+  (rule, _ctx, direction, entryPrice, stopPrice) => {
+    if (rule.type !== 'fixed_rr') {
+      throw new Error('fixed_rr target evaluator received wrong rule type')
+    }
+    const risk = Math.abs(entryPrice - stopPrice)
+    return direction === 'long'
+      ? entryPrice + risk * rule.rr
+      : entryPrice - risk * rule.rr
+  },
+)
+
+registerSizingComputer(
+  'fixed_gbp_risk',
+  (rule, riskPriceDistance, entryPrice, gbpUsdRate) => {
+    if (rule.type !== 'fixed_gbp_risk') {
+      throw new Error('fixed_gbp_risk computer received wrong rule type')
+    }
+    if (riskPriceDistance <= 0) return { sizeCoin: 0, sizeUsd: 0 }
+    const riskUsd = rule.amount * gbpUsdRate
+    const sizeCoin = riskUsd / riskPriceDistance
+    return { sizeCoin, sizeUsd: sizeCoin * entryPrice }
+  },
+)
+
+registerSizingComputer('fixed_position_size', (rule, _risk, entryPrice) => {
+  if (rule.type !== 'fixed_position_size') {
+    throw new Error('fixed_position_size computer received wrong rule type')
+  }
+  return { sizeCoin: rule.size, sizeUsd: rule.size * entryPrice }
+})
+
+// --- Engine -----------------------------------------------------
+
+function evaluateCondition(
+  condition: Condition,
+  context: EvaluationContext,
+  direction: 'long' | 'short',
+): ConditionEvaluationResult {
+  const evaluator = conditionEvaluators.get(condition.type)
+  if (!evaluator) {
+    throw new Error(
+      `No evaluator registered for condition type "${condition.type}". ` +
+        'Register it via registerConditionEvaluator before evaluating a ' +
+        'strategy that uses it.',
+    )
+  }
+  return evaluator(condition, context, direction)
+}
+
+function evaluateStop(
+  rule: StopRule,
+  context: EvaluationContext,
+  direction: 'long' | 'short',
+  entryPrice: number,
+): number {
+  const evaluator = stopEvaluators.get(rule.type)
+  if (!evaluator) {
+    throw new Error(`No evaluator registered for stop rule type "${rule.type}"`)
+  }
+  return evaluator(rule, context, direction, entryPrice)
+}
+
+function evaluateTarget(
+  rule: TargetRule,
+  context: EvaluationContext,
+  direction: 'long' | 'short',
+  entryPrice: number,
+  stopPrice: number,
+): number {
+  const evaluator = targetEvaluators.get(rule.type)
+  if (!evaluator) {
+    throw new Error(
+      `No evaluator registered for target rule type "${rule.type}"`,
+    )
+  }
+  return evaluator(rule, context, direction, entryPrice, stopPrice)
+}
+
+function computePositionSize(
+  rule: SizingRule,
+  riskPriceDistance: number,
+  entryPrice: number,
+  gbpUsdRate: number,
+): { sizeCoin: number; sizeUsd: number } {
+  const computer = sizingComputers.get(rule.type)
+  if (!computer) {
+    throw new Error(
+      `No computer registered for sizing rule type "${rule.type}"`,
+    )
+  }
+  return computer(rule, riskPriceDistance, entryPrice, gbpUsdRate)
+}
+
+function evaluateStrategy(
+  definition: StrategyDefinition,
+  context: EvaluationContext,
+): EvaluationResult {
+  const conditionValues: Record<string, unknown> = {}
+
+  for (let gi = 0; gi < definition.entry.groups.length; gi++) {
+    const group = definition.entry.groups[gi]!
+    let allPassed = true
+
+    if (group.conditions.length === 0) {
+      // An empty condition list is always-true. Useful for stub
+      // strategies and for "always enter on this candle" probes
+      // during engine bring-up.
+      allPassed = true
+    } else {
+      for (let ci = 0; ci < group.conditions.length; ci++) {
+        const condition = group.conditions[ci]!
+        const result = evaluateCondition(condition, context, group.direction)
+        if (result.values) {
+          for (const [key, value] of Object.entries(result.values)) {
+            conditionValues[`group_${gi}.${condition.type}.${key}`] = value
+          }
+        }
+        if (!result.passed) {
+          allPassed = false
+          break
+        }
+      }
+    }
+
+    if (!allPassed) continue
+
+    // Group fired. Compute prices and return.
+    const direction = group.direction
+    const entryPrice = context.currentPrice
+    const stopPrice = evaluateStop(
+      definition.exit.stop,
+      context,
+      direction,
+      entryPrice,
+    )
+    const targetPrice = evaluateTarget(
+      definition.exit.target,
+      context,
+      direction,
+      entryPrice,
+      stopPrice,
+    )
+    return {
+      triggered: true,
+      direction,
+      entry_price: entryPrice,
+      stop_price: stopPrice,
+      target_price: targetPrice,
+      triggered_group_index: gi,
+      condition_values: conditionValues,
+    }
+  }
+
+  return { triggered: false, condition_values: conditionValues }
+}
+
+// Re-export Candle type for external consumers building an
+// EvaluationContext without importing the hyperliquid module
+// directly.
+type { Candle }
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/conditions/_helpers.ts
+// ---------------------------------------------------------------------
+
+// Shared comparator bits for the condition library. Mirrors the
+// Node version (src/lib/strategies/conditions/_helpers.ts) but
+// drops the zod dependency: at scanner runtime the strategy
+// definition has already been validated by the application server,
+// so we only need the runtime comparator function here.
+
+type ComparatorAll = 'lt' | 'lte' | 'gt' | 'gte'
+
+function compareAll(
+  left: number,
+  comparator: ComparatorAll,
+  right: number,
+): boolean {
+  if (!Number.isFinite(left) || !Number.isFinite(right)) return false
+  switch (comparator) {
+    case 'lt':
+      return left < right
+    case 'lte':
+      return left <= right
+    case 'gt':
+      return left > right
+    case 'gte':
+      return left >= right
+  }
+}
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/conditions/rsi_threshold.ts
+// ---------------------------------------------------------------------
+
+const TYPE = 'rsi_threshold'
+
+registerConditionEvaluator(TYPE, (condition, context) => {
+  const params = condition.params as {
+    period: number
+    comparator: 'lt' | 'lte' | 'gt' | 'gte'
+    value: number
+  }
+  const closes = context.candles.map((c) => c.c)
+  const value = rsi(closes, params.period)
+  return {
+    passed: compareAll(value, params.comparator, params.value),
+    values: { rsi: value },
+  }
+})
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/conditions/rsi_crossing.ts
+// ---------------------------------------------------------------------
+
+const TYPE__rsi_crossing = 'rsi_crossing'
+
+registerConditionEvaluator(TYPE__rsi_crossing, (condition, context) => {
+  const params = condition.params as {
+    period: number
+    direction: 'crossing_below' | 'crossing_above'
+    value: number
+  }
+  const closes = context.candles.map((c) => c.c)
+  if (closes.length < 2) {
+    return { passed: false, values: { reason: 'not enough candles' } }
+  }
+  const current = rsi(closes, params.period)
+  const previous = rsi(closes.slice(0, -1), params.period)
+  if (!Number.isFinite(current) || !Number.isFinite(previous)) {
+    return { passed: false, values: { current, previous } }
+  }
+  const crossingBelow = previous >= params.value && current < params.value
+  const crossingAbove = previous <= params.value && current > params.value
+  const passed =
+    params.direction === 'crossing_below' ? crossingBelow : crossingAbove
+  return { passed, values: { current, previous } }
+})
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/conditions/stochastic_threshold.ts
+// ---------------------------------------------------------------------
+
+const TYPE__stochastic_threshold = 'stochastic_threshold'
+
+registerConditionEvaluator(TYPE__stochastic_threshold, (condition, context) => {
+  const params = condition.params as {
+    k_period: number
+    d_period: number
+    smooth: number
+    line: 'k' | 'd'
+    comparator: 'lt' | 'lte' | 'gt' | 'gte'
+    value: number
+  }
+  const result = stochastic(
+    context.candles,
+    params.k_period,
+    params.d_period,
+    params.smooth,
+  )
+  if (!result) {
+    return { passed: false, values: { reason: 'not enough candles' } }
+  }
+  const value = params.line === 'k' ? result.k : result.d
+  return {
+    passed: compareAll(value, params.comparator, params.value),
+    values: { k: result.k, d: result.d },
+  }
+})
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/conditions/williams_r_threshold.ts
+// ---------------------------------------------------------------------
+
+const TYPE__williams_r_threshold = 'williams_r_threshold'
+
+registerConditionEvaluator(TYPE__williams_r_threshold, (condition, context) => {
+  const params = condition.params as {
+    period: number
+    comparator: 'lt' | 'lte' | 'gt' | 'gte'
+    value: number
+  }
+  const value = williamsR(context.candles, params.period)
+  return {
+    passed: compareAll(value, params.comparator, params.value),
+    values: { williams_r: value },
+  }
+})
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/conditions/sma_position.ts
+// ---------------------------------------------------------------------
+
+const TYPE__sma_position = 'sma_position'
+
+registerConditionEvaluator(TYPE__sma_position, (condition, context) => {
+  const params = condition.params as {
+    period: number
+    position: 'above' | 'below'
+  }
+  const value = sma(
+    context.candles.map((c) => c.c),
+    params.period,
+  )
+  if (!Number.isFinite(value)) {
+    return { passed: false, values: { reason: 'not enough candles' } }
+  }
+  const close = context.currentPrice
+  const passed = params.position === 'above' ? close > value : close < value
+  return { passed, values: { sma: value, close } }
+})
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/conditions/ema_position.ts
+// ---------------------------------------------------------------------
+
+const TYPE__ema_position = 'ema_position'
+
+registerConditionEvaluator(TYPE__ema_position, (condition, context) => {
+  const params = condition.params as {
+    period: number
+    position: 'above' | 'below'
+  }
+  const value = ema(
+    context.candles.map((c) => c.c),
+    params.period,
+  )
+  if (!Number.isFinite(value)) {
+    return { passed: false, values: { reason: 'not enough candles' } }
+  }
+  const close = context.currentPrice
+  const passed = params.position === 'above' ? close > value : close < value
+  return { passed, values: { ema: value, close } }
+})
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/conditions/sma_distance.ts
+// ---------------------------------------------------------------------
+
+const TYPE__sma_distance = 'sma_distance'
+
+registerConditionEvaluator(TYPE__sma_distance, (condition, context) => {
+  const params = condition.params as {
+    period: number
+    comparator: 'lt' | 'lte' | 'gt' | 'gte'
+    distance_pct: number
+    side: 'above' | 'below' | 'absolute'
+  }
+  const value = sma(
+    context.candles.map((c) => c.c),
+    params.period,
+  )
+  if (!Number.isFinite(value) || value <= 0) {
+    return { passed: false, values: { reason: 'no sma' } }
+  }
+  const close = context.currentPrice
+  let raw: number
+  if (params.side === 'above') raw = close - value
+  else if (params.side === 'below') raw = value - close
+  else raw = Math.abs(close - value)
+  const distancePct = (raw / value) * 100
+  return {
+    passed: compareAll(distancePct, params.comparator, params.distance_pct),
+    values: { sma: value, distance_pct: distancePct },
+  }
+})
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/conditions/sma_crossover.ts
+// ---------------------------------------------------------------------
+
+const TYPE__sma_crossover = 'sma_crossover'
+
+registerConditionEvaluator(TYPE__sma_crossover, (condition, context) => {
+  const params = condition.params as {
+    fast_period: number
+    slow_period: number
+    direction: 'fast_crossing_above_slow' | 'fast_crossing_below_slow'
+  }
+  const closes = context.candles.map((c) => c.c)
+  if (closes.length < 2) {
+    return { passed: false, values: { reason: 'not enough candles' } }
+  }
+  const fast = sma(closes, params.fast_period)
+  const slow = sma(closes, params.slow_period)
+  const fastPrev = sma(closes.slice(0, -1), params.fast_period)
+  const slowPrev = sma(closes.slice(0, -1), params.slow_period)
+  if (![fast, slow, fastPrev, slowPrev].every(Number.isFinite)) {
+    return {
+      passed: false,
+      values: { fast, slow, fastPrev, slowPrev, reason: 'not enough candles' },
+    }
+  }
+  const crossingAbove = fastPrev <= slowPrev && fast > slow
+  const crossingBelow = fastPrev >= slowPrev && fast < slow
+  const passed =
+    params.direction === 'fast_crossing_above_slow'
+      ? crossingAbove
+      : crossingBelow
+  return { passed, values: { fast, slow, fastPrev, slowPrev } }
+})
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/conditions/volume_ratio.ts
+// ---------------------------------------------------------------------
+
+const TYPE__volume_ratio = 'volume_ratio'
+
+registerConditionEvaluator(TYPE__volume_ratio, (condition, context) => {
+  const params = condition.params as {
+    period: number
+    comparator: 'lt' | 'lte' | 'gt' | 'gte'
+    multiple: number
+  }
+  const volumes = context.candles.map((c) => c.v)
+  if (volumes.length < params.period + 1) {
+    return { passed: false, values: { reason: 'not enough candles' } }
+  }
+  // Average over the candles preceding the current bar so the
+  // ratio reflects how unusual this bar's volume is. Including the
+  // current bar in its own average makes the threshold harder to
+  // breach during a real spike.
+  const priorVolumes = volumes.slice(-params.period - 1, -1)
+  const avg = sma(priorVolumes, params.period)
+  if (!Number.isFinite(avg) || avg <= 0) {
+    return { passed: false, values: { avg } }
+  }
+  const current = volumes[volumes.length - 1]!
+  const ratio = current / avg
+  return {
+    passed: compareAll(ratio, params.comparator, params.multiple),
+    values: { current, avg, ratio },
+  }
+})
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/conditions/volume_threshold.ts
+// ---------------------------------------------------------------------
+
+const TYPE__volume_threshold = 'volume_threshold'
+
+registerConditionEvaluator(TYPE__volume_threshold, (condition, context) => {
+  const params = condition.params as {
+    comparator: 'lt' | 'lte' | 'gt' | 'gte'
+    value: number
+  }
+  const current = context.currentCandle.v
+  return {
+    passed: compareAll(current, params.comparator, params.value),
+    values: { volume: current },
+  }
+})
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/conditions/atr_threshold.ts
+// ---------------------------------------------------------------------
+
+const TYPE__atr_threshold = 'atr_threshold'
+
+registerConditionEvaluator(TYPE__atr_threshold, (condition, context) => {
+  const params = condition.params as {
+    period: number
+    comparator: 'lt' | 'lte' | 'gt' | 'gte'
+    value: number
+  }
+  const value = atr(context.candles, params.period)
+  return {
+    passed: compareAll(value, params.comparator, params.value),
+    values: { atr: value },
+  }
+})
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/conditions/atr_ratio.ts
+// ---------------------------------------------------------------------
+
+const TYPE__atr_ratio = 'atr_ratio'
+
+registerConditionEvaluator(TYPE__atr_ratio, (condition, context) => {
+  const params = condition.params as {
+    period: number
+    lookback: number
+    comparator: 'lt' | 'lte' | 'gt' | 'gte'
+    multiple: number
+  }
+  const series = atrSeries(context.candles, params.period)
+  if (series.length < params.lookback + 1) {
+    return { passed: false, values: { reason: 'not enough atr history' } }
+  }
+  const current = series[series.length - 1]!
+  // Average over the trailing window not including the current
+  // bar; otherwise a sustained expansion drags its own baseline up
+  // and the ratio stays close to 1.
+  const recent = series.slice(-params.lookback - 1, -1)
+  const avg = recent.reduce((a, b) => a + b, 0) / recent.length
+  if (!Number.isFinite(avg) || avg <= 0) {
+    return { passed: false, values: { avg } }
+  }
+  const ratio = current / avg
+  return {
+    passed: compareAll(ratio, params.comparator, params.multiple),
+    values: { current, avg, ratio },
+  }
+})
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/conditions/bollinger_position.ts
+// ---------------------------------------------------------------------
+
+const TYPE__bollinger_position = 'bollinger_position'
+
+const TOUCH_TOLERANCE = 0.001 // 0.1%
+
+registerConditionEvaluator(TYPE__bollinger_position, (condition, context) => {
+  const params = condition.params as {
+    period: number
+    std_dev: number
+    position:
+      | 'above_upper'
+      | 'below_lower'
+      | 'inside'
+      | 'touching_upper'
+      | 'touching_lower'
+  }
+  const bands = bollinger(
+    context.candles.map((c) => c.c),
+    params.period,
+    params.std_dev,
+  )
+  if (!bands) {
+    return { passed: false, values: { reason: 'not enough candles' } }
+  }
+  const close = context.currentPrice
+  const distUpper = Math.abs(close - bands.upper) / bands.upper
+  const distLower = Math.abs(close - bands.lower) / Math.max(bands.lower, 1e-9)
+  let passed = false
+  switch (params.position) {
+    case 'above_upper':
+      passed = close > bands.upper
+      break
+    case 'below_lower':
+      passed = close < bands.lower
+      break
+    case 'inside':
+      passed = close >= bands.lower && close <= bands.upper
+      break
+    case 'touching_upper':
+      passed = distUpper <= TOUCH_TOLERANCE
+      break
+    case 'touching_lower':
+      passed = distLower <= TOUCH_TOLERANCE
+      break
+  }
+  return {
+    passed,
+    values: {
+      upper: bands.upper,
+      middle: bands.middle,
+      lower: bands.lower,
+      close,
+    },
+  }
+})
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/conditions/near_recent_high.ts
+// ---------------------------------------------------------------------
+
+const TYPE__near_recent_high = 'near_recent_high'
+
+registerConditionEvaluator(TYPE__near_recent_high, (condition, context) => {
+  const params = condition.params as { lookback: number; within_pct: number }
+  if (context.candles.length < params.lookback + 1) {
+    return { passed: false, values: { reason: 'not enough candles' } }
+  }
+  // Excludes the current bar so the close is being compared
+  // against prior structure, not against itself.
+  const window = context.candles.slice(-params.lookback - 1, -1)
+  let highest = -Infinity
+  for (const c of window) if (c.h > highest) highest = c.h
+  if (!Number.isFinite(highest) || highest <= 0) {
+    return { passed: false, values: { highest } }
+  }
+  const close = context.currentPrice
+  const pct = ((highest - close) / highest) * 100
+  return {
+    passed: pct <= params.within_pct,
+    values: { recent_high: highest, distance_pct: pct },
+  }
+})
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/conditions/near_recent_low.ts
+// ---------------------------------------------------------------------
+
+const TYPE__near_recent_low = 'near_recent_low'
+
+registerConditionEvaluator(TYPE__near_recent_low, (condition, context) => {
+  const params = condition.params as { lookback: number; within_pct: number }
+  if (context.candles.length < params.lookback + 1) {
+    return { passed: false, values: { reason: 'not enough candles' } }
+  }
+  const window = context.candles.slice(-params.lookback - 1, -1)
+  let lowest = Infinity
+  for (const c of window) if (c.l < lowest) lowest = c.l
+  if (!Number.isFinite(lowest) || lowest <= 0) {
+    return { passed: false, values: { lowest } }
+  }
+  const close = context.currentPrice
+  const pct = ((close - lowest) / lowest) * 100
+  return {
+    passed: pct <= params.within_pct,
+    values: { recent_low: lowest, distance_pct: pct },
+  }
+})
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/conditions/candle_close_above.ts
+// ---------------------------------------------------------------------
+
+const TYPE__candle_close_above = 'candle_close_above'
+
+registerConditionEvaluator(TYPE__candle_close_above, (condition, context) => {
+  const params = condition.params as {
+    reference: 'previous_high' | 'previous_close' | 'sma' | 'ema'
+    sma_period?: number
+    ema_period?: number
+  }
+  const candles = context.candles
+  if (candles.length < 2) {
+    return { passed: false, values: { reason: 'not enough candles' } }
+  }
+  let reference: number = NaN
+  switch (params.reference) {
+    case 'previous_high':
+      reference = candles[candles.length - 2]!.h
+      break
+    case 'previous_close':
+      reference = candles[candles.length - 2]!.c
+      break
+    case 'sma':
+      reference = sma(
+        candles.map((c) => c.c),
+        params.sma_period!,
+      )
+      break
+    case 'ema':
+      reference = ema(
+        candles.map((c) => c.c),
+        params.ema_period!,
+      )
+      break
+  }
+  if (!Number.isFinite(reference)) {
+    return { passed: false, values: { reference, reason: 'no reference' } }
+  }
+  const close = context.currentPrice
+  return {
+    passed: close > reference,
+    values: { reference, close },
+  }
+})
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/conditions/level_proximity.ts
+// ---------------------------------------------------------------------
+
+const TYPE__level_proximity = 'level_proximity'
+
+registerConditionEvaluator(TYPE__level_proximity, (condition, context) => {
+  const params = condition.params as { level: number; within_pct: number }
+  const close = context.currentPrice
+  const distancePct = (Math.abs(close - params.level) / params.level) * 100
+  return {
+    passed: distancePct <= params.within_pct,
+    values: { level: params.level, close, distance_pct: distancePct },
+  }
+})
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/conditions/bullish_candle.ts
+// ---------------------------------------------------------------------
+
+const TYPE__bullish_candle = 'bullish_candle'
+
+registerConditionEvaluator(TYPE__bullish_candle, (_condition, context) => {
+  const c = context.currentCandle
+  return { passed: c.c > c.o, values: { open: c.o, close: c.c } }
+})
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/conditions/bearish_candle.ts
+// ---------------------------------------------------------------------
+
+const TYPE__bearish_candle = 'bearish_candle'
+
+registerConditionEvaluator(TYPE__bearish_candle, (_condition, context) => {
+  const c = context.currentCandle
+  return { passed: c.c < c.o, values: { open: c.o, close: c.c } }
+})
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/conditions/wick_ratio.ts
+// ---------------------------------------------------------------------
+
+const TYPE__wick_ratio = 'wick_ratio'
+
+registerConditionEvaluator(TYPE__wick_ratio, (condition, context) => {
+  const params = condition.params as {
+    side: 'upper' | 'lower'
+    comparator: 'lt' | 'lte' | 'gt' | 'gte'
+    multiple: number
+  }
+  const c = context.currentCandle
+  const body = candleBody(c)
+  const wick = params.side === 'upper' ? candleUpperWick(c) : candleLowerWick(c)
+  // Guard against zero-body doji bars: treat the body as a tiny
+  // floor so the ratio stays finite. Anything past the multiple
+  // still passes; bars with neither body nor wick still won't.
+  const effectiveBody = Math.max(body, Math.abs(c.c) * 1e-6, 1e-9)
+  const ratio = wick / effectiveBody
+  return {
+    passed: compareAll(ratio, params.comparator, params.multiple),
+    values: { ratio, body, wick },
+  }
+})
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/conditions/close_position.ts
+// ---------------------------------------------------------------------
+
+const TYPE__close_position = 'close_position'
+
+registerConditionEvaluator(TYPE__close_position, (condition, context) => {
+  const params = condition.params as {
+    position: 'upper_third' | 'lower_third' | 'upper_half' | 'lower_half'
+  }
+  const pos = candleClosePosition(context.currentCandle)
+  let passed = false
+  switch (params.position) {
+    case 'upper_third':
+      passed = pos >= 2 / 3
+      break
+    case 'lower_third':
+      passed = pos <= 1 / 3
+      break
+    case 'upper_half':
+      passed = pos >= 0.5
+      break
+    case 'lower_half':
+      passed = pos <= 0.5
+      break
+  }
+  return { passed, values: { close_position: pos } }
+})
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/conditions/hour_of_day.ts
+// ---------------------------------------------------------------------
+
+const TYPE__hour_of_day = 'hour_of_day'
+
+registerConditionEvaluator(TYPE__hour_of_day, (condition, context) => {
+  const params = condition.params as { hours: number[] }
+  const hour = new Date(context.currentCandle.t).getUTCHours()
+  return {
+    passed: params.hours.includes(hour),
+    values: { hour_utc: hour },
+  }
+})
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/conditions/day_of_week.ts
+// ---------------------------------------------------------------------
+
+const TYPE__day_of_week = 'day_of_week'
+
+// 0 = Sunday, 6 = Saturday, matching Date.prototype.getUTCDay.
+
+registerConditionEvaluator(TYPE__day_of_week, (condition, context) => {
+  const params = condition.params as { days: number[] }
+  const day = new Date(context.currentCandle.t).getUTCDay()
+  return { passed: params.days.includes(day), values: { day_utc: day } }
+})
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/conditions/funding_threshold.ts
+// ---------------------------------------------------------------------
+
+const TYPE__funding_threshold = 'funding_threshold'
+
+registerConditionEvaluator(TYPE__funding_threshold, (condition, context) => {
+  const params = condition.params as {
+    comparator: 'lt' | 'lte' | 'gt' | 'gte'
+    value: number
+  }
+  // Backtest data does not include historical funding for now, so
+  // any strategy that depends on this condition simply will not
+  // trigger in backtest mode. Surface that explicitly so the
+  // operator can spot it in the conditions_at_signal jsonb.
+  if (context.funding === undefined || context.funding === null) {
+    return {
+      passed: false,
+      values: { value: null, missing_data: true },
+    }
+  }
+  return {
+    passed: compareAll(context.funding, params.comparator, params.value),
+    values: { funding: context.funding },
+  }
+})
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/conditions/index.ts
+// ---------------------------------------------------------------------
+
+// Side-effect imports register every condition's schema and
+// evaluator with the strategy registries. Adding a new condition
+// is a matter of dropping the file in this directory and
+// importing it here.
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/exit-rules/atr_multiple_stop.ts
+// ---------------------------------------------------------------------
+
+const TYPE__atr_multiple_stop = 'atr_multiple'
+
+registerStopEvaluator(TYPE__atr_multiple_stop, (rule, context, direction, entryPrice) => {
+  if (rule.type !== TYPE__atr_multiple_stop) {
+    throw new Error(`atr_multiple stop received wrong rule type ${rule.type}`)
+  }
+  const value = atr(context.candles, rule.period)
+  // Falling back to a 1% stop when ATR cannot be computed (not
+  // enough history) keeps the engine from throwing mid-evaluation.
+  // The caller can detect the fallback if needed by recomputing.
+  const distance = Number.isFinite(value)
+    ? value * rule.multiple
+    : entryPrice * 0.01
+  return direction === 'long' ? entryPrice - distance : entryPrice + distance
+})
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/exit-rules/recent_swing_stop.ts
+// ---------------------------------------------------------------------
+
+const TYPE__recent_swing_stop = 'recent_swing'
+const DEFAULT_BUFFER_PCT = 0.2
+
+registerStopEvaluator(TYPE__recent_swing_stop, (rule, context, direction, entryPrice) => {
+  if (rule.type !== TYPE__recent_swing_stop) {
+    throw new Error(`recent_swing stop received wrong rule type ${rule.type}`)
+  }
+  const buffer = (rule.buffer_pct ?? DEFAULT_BUFFER_PCT) / 100
+  const window = context.candles.slice(-rule.lookback_candles)
+  if (window.length === 0) {
+    return direction === 'long' ? entryPrice * 0.99 : entryPrice * 1.01
+  }
+  if (direction === 'long') {
+    let lowest = Infinity
+    for (const c of window) if (c.l < lowest) lowest = c.l
+    if (!Number.isFinite(lowest) || lowest <= 0) return entryPrice * 0.99
+    return lowest * (1 - buffer)
+  }
+  let highest = -Infinity
+  for (const c of window) if (c.h > highest) highest = c.h
+  if (!Number.isFinite(highest)) return entryPrice * 1.01
+  return highest * (1 + buffer)
+})
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/exit-rules/atr_multiple_target.ts
+// ---------------------------------------------------------------------
+
+const TYPE__atr_multiple_target = 'atr_multiple'
+
+registerTargetEvaluator(TYPE__atr_multiple_target, (rule, context, direction, entryPrice) => {
+  if (rule.type !== TYPE__atr_multiple_target) {
+    throw new Error(`atr_multiple target received wrong rule type ${rule.type}`)
+  }
+  const value = atr(context.candles, rule.period)
+  const distance = Number.isFinite(value)
+    ? value * rule.multiple
+    : entryPrice * 0.02
+  return direction === 'long' ? entryPrice + distance : entryPrice - distance
+})
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/exit-rules/index.ts
+// ---------------------------------------------------------------------
+
+// Side-effect imports register the exit-rule schemas and
+// evaluators with the strategy registries.
+
+// ---------------------------------------------------------------------
+// supabase/functions/_shared/strategies/register.ts
+// ---------------------------------------------------------------------
+
+// One-call registration entry point. Mirrors
+// src/lib/strategies/register.ts. Importing this module side-
+// effect-imports every condition and exit-rule index so the
+// registries are populated by the time evaluator.ts runs.
+
+
+let registered = false
+
+function registerAllStrategyComponents(): void {
+  registered = true
+}
+
+function areStrategyComponentsRegistered(): boolean {
+  return registered
+}
+
+registerAllStrategyComponents()
+
+// ---------------------------------------------------------------------
 // supabase/functions/scanner/index.ts
 // ---------------------------------------------------------------------
 
@@ -2269,6 +3718,7 @@ type AlertInsert = {
   gbp_usd_rate: number | null
   rules_status: RulesStatus | null
   rules_violations: RuleViolation[] | null
+  alert_source?: 'framework' | 'composable'
 }
 
 async function insertAlert(alert: AlertInsert): Promise<string | null> {
@@ -2299,7 +3749,7 @@ type StrategySummary = {
   triggered: number
 }
 
-async function evaluateStrategy(args: {
+async function evaluateStrategy__index(args: {
   strategy: StrategyRow
   markets: Map<string, MarketData>
   universeBySymbol: Map<string, UniverseRow>
@@ -2497,6 +3947,244 @@ async function evaluateStrategy(args: {
   return summary
 }
 
+// Mirror of evaluateStrategy__index for composable strategy_definitions.
+// The shape of work (per-pair candle fetch, evaluator call,
+// position sizing, rules evaluation, alert insert, Telegram fan-
+// out) is the same, so the helpers above (computeSizing,
+// computeRrRatio, evaluateRules, insertAlert, sendTelegramAlert)
+// stay shared. The differences are bundled here so the legacy
+// path stays untouched.
+async function evaluateComposableStrategy(args: {
+  strategy: ActiveStrategy
+  markets: Map<string, MarketData>
+  universeBySymbol: Map<string, UniverseRow>
+  gbpUsdRate: number
+  rulesState: RulesState
+  scanStartedAt: number
+  budgetState: { softLogged: boolean; truncated: boolean }
+}): Promise<StrategySummary> {
+  const {
+    strategy,
+    markets,
+    universeBySymbol,
+    gbpUsdRate,
+    rulesState,
+    scanStartedAt,
+    budgetState,
+  } = args
+  const summary: StrategySummary = {
+    name: strategy.name,
+    scanned: 0,
+    triggered: 0,
+  }
+  const definition = strategy.definition
+  if (!definition) {
+    console.warn(
+      `[scanner] composable strategy=${strategy.name} has no definition snapshot, skipping`,
+    )
+    return summary
+  }
+  // Composable strategies do not yet expose a top-level
+  // risk_amount_gbp; pull it from the sizing rule when it is
+  // GBP-risk-based, otherwise leave null and rules-engine inputs
+  // fall back to estimates.
+  const sizingRule = definition.sizing
+  const strategyRiskGbp =
+    sizingRule.type === 'fixed_gbp_risk' ? sizingRule.amount : null
+
+  await pMap(strategy.pairs, CONCURRENCY, async (symbol) => {
+    const elapsed = Date.now() - scanStartedAt
+    if (elapsed > HARD_BUDGET_MS) {
+      budgetState.truncated = true
+      return
+    }
+    if (elapsed > SOFT_BUDGET_MS && !budgetState.softLogged) {
+      console.warn(
+        `[scanner] soft time budget exceeded at ${elapsed}ms, continuing`,
+      )
+      budgetState.softLogged = true
+    }
+    const meta = markets.get(symbol)
+    if (!meta) return
+    summary.scanned++
+
+    let candles: Candle[] = []
+    try {
+      candles = await getCandles(
+        symbol,
+        strategy.timeframe as Timeframe__index,
+        CANDLE_LOOKBACK,
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.warn(`[scanner] ${symbol} candle fetch failed: ${message}`)
+      return
+    }
+    if (candles.length === 0) return
+
+    const universeRow = universeBySymbol.get(symbol)
+    const last = candles[candles.length - 1]!
+
+    const evalContext: EvaluationContext = {
+      candles,
+      currentCandle: last,
+      currentPrice: last.c,
+      // Live scanner has funding from market context; expose it so
+      // the funding_threshold condition can fire instead of always
+      // returning missing_data.
+      funding: meta.funding,
+      openInterest: meta.openInterest,
+    }
+
+    let result
+    try {
+      result = evaluateComposableDefinition(definition, evalContext)
+    } catch (error) {
+      console.error(
+        `[scanner] composable strategy=${strategy.name} threw for ${symbol}:`,
+        error,
+      )
+      return
+    }
+    if (!result.triggered) return
+    summary.triggered++
+    const isWatchlist = universeRow?.is_watchlist ?? true
+
+    // Position sizing: if the definition specifies a coin-
+    // denominated size, honour it. Otherwise fall back to the
+    // GBP-risk path the legacy scanner uses.
+    let sizing: ReturnType<typeof computeSizing> | null = null
+    if (
+      result.entry_price != null &&
+      result.stop_price != null &&
+      sizingRule.type === 'fixed_gbp_risk' &&
+      sizingRule.amount > 0
+    ) {
+      sizing = computeSizing({
+        entry: result.entry_price,
+        stop: result.stop_price,
+        riskGbp: sizingRule.amount,
+        gbpUsdRate,
+      })
+    } else if (
+      result.entry_price != null &&
+      sizingRule.type === 'fixed_position_size'
+    ) {
+      const sizeUsd = sizingRule.size * result.entry_price
+      sizing = {
+        positionSizeCoin: sizingRule.size,
+        positionSizeUsd: sizeUsd,
+        leverageImplied: null,
+      }
+    }
+    const validUntil = nextCandleClose(strategy.timeframe as Timeframe__index)
+
+    const rrRatio = computeRrRatio(
+      result.direction ?? null,
+      result.entry_price ?? null,
+      result.stop_price ?? null,
+      result.target_price ?? null,
+    )
+
+    // For composable strategies with non-GBP sizing the daily-loss
+    // rule needs an estimate of risk per trade. Use an approximate
+    // 5% of position notional as a stop-distance proxy. This is
+    // documented as approximate; the rules engine treats daily
+    // loss as advisory anyway.
+    const projectedRiskGbp =
+      strategyRiskGbp ??
+      (sizing && sizing.positionSizeUsd != null
+        ? (sizing.positionSizeUsd * 0.05) / Math.max(gbpUsdRate, 1e-9)
+        : null)
+
+    const rulesContext: RulesContext = {
+      strategy: {
+        risk_amount_gbp: projectedRiskGbp ?? 0,
+        min_rr: 0, // composable strategies do not impose a global min_rr
+        max_concurrent_positions: strategy.max_concurrent_positions,
+        max_daily_loss_gbp: strategy.max_daily_loss_gbp,
+        max_consecutive_losers: strategy.max_consecutive_losers,
+      },
+      proposedTrade: {
+        risk_amount_gbp: projectedRiskGbp,
+        rr_ratio: rrRatio,
+      },
+      currentState: rulesState,
+    }
+    const rulesResult = evaluateRules(rulesContext)
+
+    // Build a per-condition snapshot map alongside the engine's
+    // flat condition_values so the alerts UI can render
+    // group / index / pass per condition.
+    const composableConditionValues: Record<string, unknown> = {
+      source: 'composable',
+      group_index: result.triggered_group_index ?? null,
+      group_direction: result.direction ?? null,
+      values: result.condition_values,
+    }
+
+    const alertId = await insertAlert({
+      strategy_id: strategy.id,
+      framework_id: 'composable',
+      symbol,
+      coingecko_id: universeRow?.coingecko_id ?? null,
+      condition_values: composableConditionValues,
+      suggested_direction: result.direction ?? null,
+      suggested_entry: result.entry_price ?? null,
+      suggested_stop: result.stop_price ?? null,
+      suggested_target: result.target_price ?? null,
+      is_watchlist: isWatchlist,
+      notified_telegram: false,
+      position_size_coin: sizing?.positionSizeCoin ?? null,
+      position_size_usd: sizing?.positionSizeUsd ?? null,
+      leverage_implied: sizing?.leverageImplied ?? null,
+      valid_until: validUntil.toISOString(),
+      risk_amount_gbp: projectedRiskGbp,
+      gbp_usd_rate: gbpUsdRate,
+      rules_status: rulesResult.status,
+      rules_violations: rulesResult.violations,
+      alert_source: 'composable',
+    })
+    if (!alertId) return
+
+    if (
+      isWatchlist &&
+      result.direction &&
+      result.entry_price != null &&
+      result.stop_price != null &&
+      result.target_price != null
+    ) {
+      const ok = await sendTelegramAlert({
+        framework_name: strategy.name,
+        symbol,
+        direction: result.direction,
+        entry: result.entry_price,
+        stop: result.stop_price,
+        target: result.target_price,
+        funding: meta.funding,
+        oiDeltaPct: 0,
+        appUrl: `${APP_URL}/alerts`,
+        positionSizeCoin: sizing?.positionSizeCoin ?? null,
+        positionSizeUsd: sizing?.positionSizeUsd ?? null,
+        leverageImplied: sizing?.leverageImplied ?? null,
+        riskAmountGbp: projectedRiskGbp ?? 0,
+        validUntil,
+        timeframe: strategy.timeframe as Timeframe__index,
+        rulesStatus: rulesResult.status,
+        rulesViolations: rulesResult.violations,
+      })
+      if (ok) await markNotified(alertId)
+    }
+  })
+
+  // Compact log: signal counts by condition pass instead of full
+  // condition_values map.
+  console.log(
+    `[scanner] composable strategy=${strategy.name} pairs=${strategy.pairs.length} scanned=${summary.scanned} triggered=${summary.triggered}`,
+  )
+  return summary
+}
+
 async function runScan(): Promise<{
   scanned: number
   triggered: number
@@ -2530,8 +4218,27 @@ async function runScan(): Promise<{
   }
   await writeSnapshots(snapshots)
 
-  const strategies = await loadActiveStrategies()
-  if (strategies.length === 0) {
+  // Resolve the single active strategy. Prefers the composable
+  // table when both have an active row (and logs the conflict).
+  // Falls back to the legacy multi-strategy loader if the unified
+  // resolver returns null AND a legacy row is somehow active
+  // outside the index, so the v1 scanner stays compatible during
+  // the transition.
+  const activeStrategy: ActiveStrategy | null =
+    await loadActiveStrategy(supabase())
+  const strategies =
+    activeStrategy && activeStrategy.source === 'framework'
+      ? // Framework path: use the legacy loader to surface every
+        // active framework row at once. The unified resolver hands
+        // back exactly one but the legacy loader also supports the
+        // (unsupported in v1) multi-active scenario, so we keep it
+        // for parity.
+        await loadActiveStrategies()
+      : []
+  if (
+    strategies.length === 0 &&
+    (!activeStrategy || activeStrategy.source !== 'composable')
+  ) {
     console.warn('[scanner] no active strategies, nothing to evaluate')
     return {
       scanned: 0,
@@ -2544,12 +4251,13 @@ async function runScan(): Promise<{
     }
   }
 
-  // Union of pair symbols across all active strategies. History and
-  // narrative heat get loaded once for this set rather than per
-  // strategy.
+  // Union of pair symbols across the active source.
   const strategyPairs = new Set<string>()
   for (const s of strategies) {
     for (const sym of s.pair_symbols) strategyPairs.add(sym)
+  }
+  if (activeStrategy && activeStrategy.source === 'composable') {
+    for (const sym of activeStrategy.pairs) strategyPairs.add(sym)
   }
 
   const [
@@ -2574,7 +4282,7 @@ async function runScan(): Promise<{
   let totalTriggered = 0
 
   for (const strategy of strategies) {
-    const summary = await evaluateStrategy({
+    const summary = await evaluateStrategy__index({
       strategy,
       markets,
       universeBySymbol,
@@ -2594,6 +4302,25 @@ async function runScan(): Promise<{
       `[scanner] strategy=${summary.name} scanned=${summary.scanned} triggered=${summary.triggered}`,
     )
     if (budgetState.truncated) break
+  }
+
+  // Composable strategy path. At most one composable strategy is
+  // active at any time. Runs after the framework loop so a
+  // misconfigured "both active" state still produces alerts from
+  // the composable side last.
+  if (activeStrategy && activeStrategy.source === 'composable') {
+    const summary = await evaluateComposableStrategy({
+      strategy: activeStrategy,
+      markets,
+      universeBySymbol,
+      gbpUsdRate,
+      rulesState,
+      scanStartedAt: started,
+      budgetState,
+    })
+    summaries.push(summary)
+    totalScanned += summary.scanned
+    totalTriggered += summary.triggered
   }
 
   // Position sync: poll the Hyperliquid main accounts that have linked
