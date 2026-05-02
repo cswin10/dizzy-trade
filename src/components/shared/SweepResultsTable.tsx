@@ -40,6 +40,10 @@ function truncate(text: string, max = 200): string {
 
 export type SweepResultsTableProps = {
   rows: SweepResultRow[]
+  // Threaded into the per-run "View" link as a query param so the
+  // run-detail page can render a Back button that returns here
+  // instead of dumping the user on the runs list with no context.
+  sweepId?: string
 }
 
 type SortKey =
@@ -85,7 +89,7 @@ function describeCombo(
     .join(', ')
 }
 
-export function SweepResultsTable({ rows }: SweepResultsTableProps) {
+export function SweepResultsTable({ rows, sweepId }: SweepResultsTableProps) {
   const [sortKey, setSortKey] = useState<SortKey>('total_pnl_gbp')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [minTrades, setMinTrades] = useState(0)
@@ -259,7 +263,11 @@ export function SweepResultsTable({ rows }: SweepResultsTableProps) {
                 </td>
                 <td className="px-3 py-2 text-right">
                   <Link
-                    href={`/backtest/${row.run_id}`}
+                    href={
+                      sweepId
+                        ? `/backtest/${row.run_id}?sweep=${sweepId}`
+                        : `/backtest/${row.run_id}`
+                    }
                     className="text-xs text-accent hover:underline"
                   >
                     View

@@ -12,6 +12,8 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Panel } from '@/components/ui/Panel'
 
+import { ConfirmDialog } from './ConfirmDialog'
+
 export type HyperliquidSettingsProps = {
   initialAddress: string | null
   lastSyncedAt: string | null
@@ -48,6 +50,7 @@ export function HyperliquidSettings({
   const [draft, setDraft] = useState<string>(initialAddress ?? '')
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
+  const [confirmDisconnectOpen, setConfirmDisconnectOpen] = useState(false)
 
   const save = () => {
     setError(null)
@@ -62,24 +65,19 @@ export function HyperliquidSettings({
     })
   }
 
-  const disconnect = () => {
-    if (
-      !window.confirm(
-        'Disconnect Hyperliquid? Any trades currently linked to live positions will revert to manual.',
-      )
-    ) {
-      return
-    }
+  const performDisconnect = () => {
     setError(null)
     startTransition(async () => {
       const result = await removeHyperliquidConfigAction()
       if (!result.ok) {
         setError(result.message ?? 'Disconnect failed')
+        setConfirmDisconnectOpen(false)
         return
       }
       setAddress(null)
       setDraft('')
       setEditing(true)
+      setConfirmDisconnectOpen(false)
     })
   }
 
@@ -112,7 +110,7 @@ export function HyperliquidSettings({
               </button>
               <button
                 type="button"
-                onClick={disconnect}
+                onClick={() => setConfirmDisconnectOpen(true)}
                 disabled={pending}
                 className="text-xs text-white/45 transition-colors duration-150 hover:text-negative disabled:opacity-50"
               >
@@ -170,6 +168,16 @@ export function HyperliquidSettings({
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={confirmDisconnectOpen}
+        onClose={() => setConfirmDisconnectOpen(false)}
+        onConfirm={performDisconnect}
+        title="Disconnect Hyperliquid?"
+        message="Any trades currently linked to live positions will revert to manual."
+        confirmLabel="Disconnect"
+        destructive
+        busy={pending}
+      />
     </Panel>
   )
 }

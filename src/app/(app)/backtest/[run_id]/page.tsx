@@ -144,6 +144,22 @@ export default async function BacktestResultPage({
     .single()
   if (error || !run) notFound()
 
+  // If this run was produced by a sweep, fetch the sweep name so the
+  // header can render a breadcrumb pill linking back to it. Without
+  // this the operator drilling into a combination loses the parent
+  // context entirely.
+  let parentSweep: { id: string; name: string } | null = null
+  if (run.sweep_id) {
+    const sweepRes = await supabase
+      .from('backtest_sweeps')
+      .select('id, name')
+      .eq('id', run.sweep_id)
+      .single()
+    if (sweepRes.data) {
+      parentSweep = { id: sweepRes.data.id, name: sweepRes.data.name }
+    }
+  }
+
   const tradesRes = await supabase
     .from('backtest_trades')
     .select(
@@ -192,6 +208,11 @@ export default async function BacktestResultPage({
   const distribution = buildDistribution(trades)
   const pairBreakdown = buildPairBreakdown(trades)
 
+  const backHref = parentSweep
+    ? `/backtest/sweeps/${parentSweep.id}`
+    : '/backtest'
+  const backLabel = parentSweep ? 'Back to sweep' : 'Back'
+
   return (
     <PageContainer>
       <PageHeader
@@ -209,14 +230,25 @@ export default async function BacktestResultPage({
                 New backtest
               </Button>
             </Link>
-            <Link href="/backtest" className="contents">
+            <Link href={backHref} className="contents">
               <Button variant="ghost" className="w-auto">
-                Back
+                {backLabel}
               </Button>
             </Link>
           </div>
         }
       />
+      {parentSweep ? (
+        <div className="mb-4 flex items-center gap-2 text-xs text-white/55">
+          <span>From sweep:</span>
+          <Link
+            href={`/backtest/sweeps/${parentSweep.id}`}
+            className="rounded-full border border-white/10 bg-surface px-3 py-1 font-medium text-white/80 transition-colors hover:border-white/20 hover:text-white"
+          >
+            {parentSweep.name}
+          </Link>
+        </div>
+      ) : null}
 
       {run.status === 'running' || run.status === 'pending' ? (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-6 text-center text-sm text-amber-200">

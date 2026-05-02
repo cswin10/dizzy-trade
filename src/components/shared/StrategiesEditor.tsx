@@ -15,6 +15,8 @@ import { Dialog } from '@/components/ui/Dialog'
 import { Input } from '@/components/ui/Input'
 import { Panel } from '@/components/ui/Panel'
 import { Select } from '@/components/ui/Select'
+
+import { ConfirmDialog } from './ConfirmDialog'
 import {
   TIMEFRAMES,
   type StrategyInput,
@@ -194,6 +196,7 @@ function StrategyPanel({
   const [draft, setDraft] = useState<FormDraft>(rowToDraft(row))
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
   const dirty = useMemo(() => isDirty(draft, row), [draft, row])
 
   const save = () => {
@@ -225,18 +228,15 @@ function StrategyPanel({
   }
 
   const remove = () => {
-    if (
-      !window.confirm(`Delete strategy "${row.name}"? This cannot be undone.`)
-    ) {
-      return
-    }
     setError(null)
     startTransition(async () => {
       const result = await deleteStrategyAction(row.id)
       if (!result.ok) {
         setError(result.message ?? 'Delete failed')
+        setConfirmDeleteOpen(false)
         return
       }
+      setConfirmDeleteOpen(false)
       onDeleted(row.id)
     })
   }
@@ -278,7 +278,7 @@ function StrategyPanel({
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
         <button
           type="button"
-          onClick={remove}
+          onClick={() => setConfirmDeleteOpen(true)}
           disabled={pending}
           className="text-xs text-white/45 transition-colors duration-150 hover:text-negative disabled:cursor-not-allowed disabled:opacity-50"
         >
@@ -293,6 +293,16 @@ function StrategyPanel({
           {pending ? 'Saving' : 'Save changes'}
         </Button>
       </div>
+      <ConfirmDialog
+        open={confirmDeleteOpen}
+        onClose={() => setConfirmDeleteOpen(false)}
+        onConfirm={remove}
+        title="Delete strategy?"
+        message={`"${row.name}" will be removed. This cannot be undone.`}
+        confirmLabel="Delete"
+        destructive
+        busy={pending}
+      />
     </Panel>
   )
 }
