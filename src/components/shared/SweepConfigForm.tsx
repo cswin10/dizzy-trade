@@ -64,11 +64,26 @@ const FRAMEWORK_DEFAULTS: Record<string, Record<string, number>> = {
   },
 }
 
+export type SweepComposableStrategyOption = {
+  id: string
+  name: string
+  pairs: string[]
+  timeframe: string
+  max_concurrent_positions: number
+  max_daily_loss_gbp: number | null
+  max_consecutive_losers: number | null
+  // The actual definition document. The dimension picker walks
+  // entry.groups[N].conditions[M].params.* and offers each leaf
+  // numeric path as a sweepable target.
+  definition: import('@/lib/strategies/types').StrategyDefinition
+}
+
 export type SweepConfigFormProps = {
   pairUniverse: string[]
   defaultPairs?: string[]
   defaultFrameworkId?: string
   defaultTimeframe?: string
+  composableStrategies?: SweepComposableStrategyOption[]
 }
 
 function todayIso(): string {
@@ -86,6 +101,7 @@ export function SweepConfigForm({
   defaultPairs,
   defaultFrameworkId,
   defaultTimeframe,
+  composableStrategies = [],
 }: SweepConfigFormProps) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -120,6 +136,55 @@ export function SweepConfigForm({
   const [assumeTaker, setAssumeTaker] = useState(true)
   const [enableSplit, setEnableSplit] = useState(true)
   const [trainSplitPct, setTrainSplitPct] = useState(70)
+
+  const [strategySource, setStrategySource] = useState<
+    'framework' | 'composable'
+  >('framework')
+  const [strategyDefinitionId, setStrategyDefinitionId] = useState<string>(
+    composableStrategies[0]?.id ?? '',
+  )
+  const composableSelected = composableStrategies.find(
+    (s) => s.id === strategyDefinitionId,
+  )
+
+  // For composable sweeps, the dimension picker offers JSON paths
+  // into the chosen strategy's definition. We surface every numeric
+  // condition param as a sweepable path with a friendly label so
+  // the operator can pick "RSI threshold value (group 1, condition 1)"
+  // rather than typing the path by hand.
+  const composablePathSuggestions = useMemo<
+    Array<{ path: string; label: string }>
+  >(() => {
+    if (strategySource !== 'composable' || !composableSelected) return []
+    const out: Array<{ path: string; label: string }> = []
+    const def = composableSelected.definition
+    def.entry.groups.forEach((group, gi) => {
+      group.conditions.forEach((cond, ci) => {
+        for (const [key, value] of Object.entries(cond.params)) {
+          if (typeof value === 'number') {
+            out.push({
+              path: `entry.groups[${gi}].conditions[${ci}].params.${key}`,
+              label: `${cond.type} ${key} (group ${gi + 1}, condition ${ci + 1})`,
+            })
+          }
+        }
+      })
+    })
+    // Stop / target / sizing scalar params
+    for (const [k, v] of Object.entries(def.exit.stop)) {
+      if (typeof v === 'number')
+        out.push({ path: `exit.stop.${k}`, label: `stop ${k}` })
+    }
+    for (const [k, v] of Object.entries(def.exit.target)) {
+      if (typeof v === 'number')
+        out.push({ path: `exit.target.${k}`, label: `target ${k}` })
+    }
+    for (const [k, v] of Object.entries(def.sizing)) {
+      if (typeof v === 'number')
+        out.push({ path: `sizing.${k}`, label: `sizing ${k}` })
+    }
+    return out
+  }, [strategySource, composableSelected])
 
   const [dimensions, setDimensions] = useState<SweepDimension[]>([])
   const [editorOpen, setEditorOpen] = useState(false)
@@ -181,11 +246,14 @@ export function SweepConfigForm({
       return
     }
 
+    if (strategySource === 'composable' && !strategyDefinitionId) {
+      setError('Pick a composable strategy from the dropdown.')
+      return
+    }
+
     startTransition(async () => {
-      const result = await createSweepAction({
+      const baseConfig = {
         name,
-        framework_id: frameworkId,
-        framework_thresholds: thresholds,
         timeframe: timeframe as (typeof BACKTEST_TIMEFRAMES)[number],
         pairs,
         date_range_start: new Date(dateStart),
@@ -202,7 +270,19 @@ export function SweepConfigForm({
         enable_train_test_split: enableSplit,
         train_split_pct: trainSplitPct,
         dimensions,
-      })
+      } as const
+      const result = await createSweepAction(
+        strategySource === 'composable'
+          ? {
+              ...baseConfig,
+              strategy_definition_id: strategyDefinitionId,
+            }
+          : {
+              ...baseConfig,
+              framework_id: frameworkId,
+              framework_thresholds: thresholds,
+            },
+      )
       if (!result.ok || !result.id) {
         setError(result.message ?? 'Failed to create sweep')
         return
@@ -225,18 +305,72 @@ export function SweepConfigForm({
       </Section>
 
       <Section title="Base config">
+        {composableStrategies.length > 0 ? (
+          <div className="mb-3 inline-flex rounded-md border border-white/10 bg-surface-2 p-0.5 text-xs">
+            <button
+              type="button"
+              onClick={() => setStrategySource('framework')}
+              className={twMerge(
+                'rounded px-3 py-1 transition-colors',
+                strategySource === 'framework'
+                  ? 'bg-accent/20 text-white'
+                  : 'text-white/55 hover:text-white',
+              )}
+            >
+              Framework
+            </button>
+            <button
+              type="button"
+              onClick={() => setStrategySource('composable')}
+              className={twMerge(
+                'rounded px-3 py-1 transition-colors',
+                strategySource === 'composable'
+                  ? 'bg-accent/20 text-white'
+                  : 'text-white/55 hover:text-white',
+              )}
+            >
+              Composable strategy
+            </button>
+          </div>
+        ) : null}
         <div className="grid gap-4 sm:grid-cols-2">
-          <Select
-            label="Framework"
-            value={frameworkId}
-            onChange={(event) => changeFramework(event.target.value)}
-          >
-            {FRAMEWORK_OPTIONS.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.name}
-              </option>
-            ))}
-          </Select>
+          {strategySource === 'composable' ? (
+            <Select
+              label="Composable strategy"
+              value={strategyDefinitionId}
+              onChange={(event) => {
+                const next = event.target.value
+                setStrategyDefinitionId(next)
+                const found = composableStrategies.find((s) => s.id === next)
+                if (found) {
+                  setPairs(found.pairs)
+                  setTimeframe(found.timeframe)
+                  setMaxConcurrent(found.max_concurrent_positions)
+                  setMaxDailyLoss(found.max_daily_loss_gbp)
+                  setMaxConsecLosers(found.max_consecutive_losers)
+                }
+                setDimensions([])
+              }}
+            >
+              {composableStrategies.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <Select
+              label="Framework"
+              value={frameworkId}
+              onChange={(event) => changeFramework(event.target.value)}
+            >
+              {FRAMEWORK_OPTIONS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.name}
+                </option>
+              ))}
+            </Select>
+          )}
           <Select
             label="Timeframe"
             value={timeframe}
@@ -429,6 +563,11 @@ export function SweepConfigForm({
           <div className="mt-3">
             <SweepDimensionEditor
               thresholdKeys={thresholdKeys}
+              pathSuggestions={
+                strategySource === 'composable'
+                  ? composablePathSuggestions
+                  : undefined
+              }
               initial={
                 editingIndex !== null ? dimensions[editingIndex] : undefined
               }

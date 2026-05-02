@@ -202,10 +202,28 @@ export default async function SettingsPage() {
             id: 'strategies',
             label: 'Strategies',
             content: (
-              <StrategiesEditor
-                initialStrategies={strategyRows}
-                universeSymbols={universeSymbols}
-              />
+              <div className="flex flex-col gap-5">
+                <div className="rounded-lg border border-accent/20 bg-accent/[0.06] p-4 text-sm text-white/80">
+                  <p className="font-medium text-white">
+                    Composable strategies have moved.
+                  </p>
+                  <p className="mt-1 text-white/65">
+                    The new visual builder lives on a dedicated page. The legacy
+                    framework editor below is kept for any existing framework
+                    strategies.
+                  </p>
+                  <a
+                    href="/settings/strategies"
+                    className="mt-3 inline-flex items-center gap-2 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/90"
+                  >
+                    Open the strategies library →
+                  </a>
+                </div>
+                <StrategiesEditor
+                  initialStrategies={strategyRows}
+                  universeSymbols={universeSymbols}
+                />
+              </div>
             ),
           },
           {

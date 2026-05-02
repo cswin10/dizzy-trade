@@ -380,3 +380,97 @@ export async function validateStrategyJsonAction(
 
   return tryValidateStrategyDefinition(raw)
 }
+
+// --- Unified library helpers ------------------------------------
+
+export type StrategyLibraryRow = {
+  source: 'composable' | 'framework'
+  id: string
+  name: string
+  description: string | null
+  is_active: boolean
+  is_archived: boolean
+  pairs: string[]
+  timeframe: string
+  created_at: string | null
+  updated_at: string | null
+  // Composable-only.
+  definition: StrategyDefinition | null
+  // Framework-only.
+  framework_id: string | null
+}
+
+export type StrategyLibraryListResult =
+  | { ok: true; rows: StrategyLibraryRow[] }
+  | { ok: false; message: string }
+
+// Unified listing for the new Strategies library page. Pulls
+// composable strategy_definitions and the legacy strategies
+// table and merges them on a single shape so the UI can render
+// one list with a source pill per row.
+export async function listAllStrategiesAction(): Promise<StrategyLibraryListResult> {
+  const ctx = await resolveTenant()
+  if (!ctx.ok) return { ok: false, message: ctx.error }
+
+  const service = createServiceClient()
+  const [composableRes, legacyRes] = await Promise.all([
+    service
+      .from('strategy_definitions')
+      .select('*')
+      .eq('tenant_id', ctx.tenantId)
+      .order('updated_at', { ascending: false }),
+    service
+      .from('strategies')
+      .select(
+        'id, name, framework_id, timeframe, pair_symbols, is_active, created_at, updated_at',
+      )
+      .order('updated_at', { ascending: false }),
+  ])
+
+  if (composableRes.error) {
+    return { ok: false, message: composableRes.error.message }
+  }
+  if (legacyRes.error) {
+    return { ok: false, message: legacyRes.error.message }
+  }
+
+  const composable: StrategyLibraryRow[] = (composableRes.data ?? []).map(
+    (row) => ({
+      source: 'composable',
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      is_active: row.is_active,
+      is_archived: row.is_archived,
+      pairs: row.pairs ?? [],
+      timeframe: row.timeframe,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      definition: row.definition as unknown as StrategyDefinition,
+      framework_id: null,
+    }),
+  )
+  const legacy: StrategyLibraryRow[] = (legacyRes.data ?? []).map((row) => ({
+    source: 'framework',
+    id: row.id,
+    name: row.name,
+    description: null,
+    is_active: row.is_active,
+    is_archived: false,
+    pairs: row.pair_symbols ?? [],
+    timeframe: row.timeframe,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    definition: null,
+    framework_id: row.framework_id,
+  }))
+  // Active row first, then most-recently updated.
+  const merged = [...composable, ...legacy].sort((a, b) => {
+    if (a.is_active && !b.is_active) return -1
+    if (!a.is_active && b.is_active) return 1
+    const at = a.updated_at ? Date.parse(a.updated_at) : 0
+    const bt = b.updated_at ? Date.parse(b.updated_at) : 0
+    return bt - at
+  })
+  return { ok: true, rows: merged }
+}

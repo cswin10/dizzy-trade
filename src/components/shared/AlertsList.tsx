@@ -221,8 +221,10 @@ function AlertCard({ alert }: { alert: AlertRow }) {
   const now = useNow()
   const [rulesExpanded, setRulesExpanded] = useState(false)
 
-  const frameworkLabel =
-    FRAMEWORK_LABELS[alert.framework_id] ?? alert.framework_id
+  const isComposable = alert.alert_source === 'composable'
+  const frameworkLabel = isComposable
+    ? 'Composable strategy'
+    : (FRAMEWORK_LABELS[alert.framework_id ?? ''] ?? alert.framework_id ?? '')
   const conditions = alert.condition_values as Record<string, unknown>
   const fundingVal = toNumber(conditions.funding)
   const oiDeltaPct = toNumber(conditions.oiDeltaPct)

@@ -60,6 +60,16 @@ const FRAMEWORK_DEFAULTS: Record<string, Record<string, number>> = {
   },
 }
 
+export type ComposableStrategyOption = {
+  id: string
+  name: string
+  pairs: string[]
+  timeframe: string
+  max_concurrent_positions: number
+  max_daily_loss_gbp: number | null
+  max_consecutive_losers: number | null
+}
+
 export type BacktestConfigFormProps = {
   pairUniverse: string[]
   defaultPairs?: string[]
@@ -68,6 +78,11 @@ export type BacktestConfigFormProps = {
   defaultRiskAmountGbp?: number
   defaultMinRr?: number
   defaultMaxConcurrent?: number
+  // The user's saved composable strategies. When non-empty the
+  // form gains a strategy source toggle: framework (legacy) or
+  // composable (pick from this list).
+  composableStrategies?: ComposableStrategyOption[]
+  defaultStrategyDefinitionId?: string
 }
 
 function todayIso(): string {
@@ -96,6 +111,8 @@ export function BacktestConfigForm({
   defaultRiskAmountGbp,
   defaultMinRr,
   defaultMaxConcurrent,
+  composableStrategies = [],
+  defaultStrategyDefinitionId,
 }: BacktestConfigFormProps) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -130,6 +147,12 @@ export function BacktestConfigForm({
   const [assumeTaker, setAssumeTaker] = useState(true)
   const [enableSplit, setEnableSplit] = useState(true)
   const [trainSplitPct, setTrainSplitPct] = useState(70)
+  const [strategySource, setStrategySource] = useState<
+    'framework' | 'composable'
+  >(defaultStrategyDefinitionId ? 'composable' : 'framework')
+  const [strategyDefinitionId, setStrategyDefinitionId] = useState<string>(
+    defaultStrategyDefinitionId ?? composableStrategies[0]?.id ?? '',
+  )
 
   const estimatedRuntimeMs = useMemo(() => {
     const start = new Date(dateStart).getTime()
@@ -199,28 +222,55 @@ export function BacktestConfigForm({
       return
     }
 
+    if (strategySource === 'composable' && !strategyDefinitionId) {
+      setError('Pick a composable strategy from the dropdown.')
+      return
+    }
+
     startTransition(async () => {
       setStatusText('Creating run…')
-      const created = await createBacktestRunAction({
-        name,
-        framework_id: frameworkId,
-        framework_thresholds: thresholds,
-        timeframe: timeframe as (typeof BACKTEST_TIMEFRAMES)[number],
-        pairs,
-        risk_amount_gbp: riskAmountGbp,
-        min_rr: minRr,
-        max_concurrent_positions: maxConcurrent,
-        max_daily_loss_gbp: maxDailyLoss,
-        max_consecutive_losers: maxConsecLosers,
-        date_range_start: new Date(dateStart),
-        date_range_end: new Date(dateEnd),
-        slippage_pct: slippagePct,
-        maker_fee_pct: makerFeePct,
-        taker_fee_pct: takerFeePct,
-        assume_taker: assumeTaker,
-        enable_train_test_split: enableSplit,
-        train_split_pct: trainSplitPct,
-      })
+      const created = await createBacktestRunAction(
+        strategySource === 'composable'
+          ? {
+              name,
+              strategy_definition_id: strategyDefinitionId,
+              timeframe: timeframe as (typeof BACKTEST_TIMEFRAMES)[number],
+              pairs,
+              risk_amount_gbp: riskAmountGbp,
+              min_rr: minRr,
+              max_concurrent_positions: maxConcurrent,
+              max_daily_loss_gbp: maxDailyLoss,
+              max_consecutive_losers: maxConsecLosers,
+              date_range_start: new Date(dateStart),
+              date_range_end: new Date(dateEnd),
+              slippage_pct: slippagePct,
+              maker_fee_pct: makerFeePct,
+              taker_fee_pct: takerFeePct,
+              assume_taker: assumeTaker,
+              enable_train_test_split: enableSplit,
+              train_split_pct: trainSplitPct,
+            }
+          : {
+              name,
+              framework_id: frameworkId,
+              framework_thresholds: thresholds,
+              timeframe: timeframe as (typeof BACKTEST_TIMEFRAMES)[number],
+              pairs,
+              risk_amount_gbp: riskAmountGbp,
+              min_rr: minRr,
+              max_concurrent_positions: maxConcurrent,
+              max_daily_loss_gbp: maxDailyLoss,
+              max_consecutive_losers: maxConsecLosers,
+              date_range_start: new Date(dateStart),
+              date_range_end: new Date(dateEnd),
+              slippage_pct: slippagePct,
+              maker_fee_pct: makerFeePct,
+              taker_fee_pct: takerFeePct,
+              assume_taker: assumeTaker,
+              enable_train_test_split: enableSplit,
+              train_split_pct: trainSplitPct,
+            },
+      )
       if (!created.ok || !created.id) {
         setError(created.message ?? 'Failed to create run')
         setStatusText(null)
@@ -250,19 +300,73 @@ export function BacktestConfigForm({
       </Section>
 
       <Section title="Strategy">
+        {composableStrategies.length > 0 ? (
+          <div className="mb-3 inline-flex rounded-md border border-white/10 bg-surface-2 p-0.5 text-xs">
+            <button
+              type="button"
+              onClick={() => setStrategySource('framework')}
+              className={twMerge(
+                'rounded px-3 py-1 transition-colors',
+                strategySource === 'framework'
+                  ? 'bg-accent/20 text-white'
+                  : 'text-white/55 hover:text-white',
+              )}
+            >
+              Framework
+            </button>
+            <button
+              type="button"
+              onClick={() => setStrategySource('composable')}
+              className={twMerge(
+                'rounded px-3 py-1 transition-colors',
+                strategySource === 'composable'
+                  ? 'bg-accent/20 text-white'
+                  : 'text-white/55 hover:text-white',
+              )}
+            >
+              Composable strategy
+            </button>
+          </div>
+        ) : null}
         <div className="grid gap-4 sm:grid-cols-2">
-          <Select
-            label="Framework"
-            name="framework_id"
-            value={frameworkId}
-            onChange={(event) => changeFramework(event.target.value)}
-          >
-            {FRAMEWORK_OPTIONS.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.name}
-              </option>
-            ))}
-          </Select>
+          {strategySource === 'composable' ? (
+            <Select
+              label="Composable strategy"
+              name="strategy_definition_id"
+              value={strategyDefinitionId}
+              onChange={(event) => {
+                const next = event.target.value
+                setStrategyDefinitionId(next)
+                const found = composableStrategies.find((s) => s.id === next)
+                if (found) {
+                  setPairs(found.pairs)
+                  setTimeframe(found.timeframe)
+                  setMaxConcurrent(found.max_concurrent_positions)
+                  setMaxDailyLoss(found.max_daily_loss_gbp)
+                  setMaxConsecLosers(found.max_consecutive_losers)
+                }
+              }}
+            >
+              {composableStrategies.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <Select
+              label="Framework"
+              name="framework_id"
+              value={frameworkId}
+              onChange={(event) => changeFramework(event.target.value)}
+            >
+              {FRAMEWORK_OPTIONS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.name}
+                </option>
+              ))}
+            </Select>
+          )}
           <Select
             label="Timeframe"
             name="timeframe"
@@ -276,7 +380,8 @@ export function BacktestConfigForm({
             ))}
           </Select>
         </div>
-        {Object.keys(thresholds).length > 0 ? (
+        {strategySource === 'framework' &&
+        Object.keys(thresholds).length > 0 ? (
           <details className="mt-4 rounded-md border border-white/[0.06] bg-surface-2 p-3">
             <summary className="cursor-pointer text-xs uppercase tracking-wider text-white/55">
               Framework thresholds

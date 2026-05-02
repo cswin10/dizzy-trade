@@ -12,6 +12,10 @@ export type SweepDimensionEditorProps = {
   initial?: SweepDimension
   onSave: (dimension: SweepDimension) => void
   onCancel: () => void
+  // When provided (composable sweeps), the parameter dropdown
+  // shows JSON paths into the strategy definition with friendly
+  // labels instead of the framework risk/threshold dropdowns.
+  pathSuggestions?: Array<{ path: string; label: string }>
 }
 
 const RISK_KEYS = [
@@ -30,9 +34,13 @@ export function SweepDimensionEditor({
   initial,
   onSave,
   onCancel,
+  pathSuggestions,
 }: SweepDimensionEditorProps) {
   const [key, setKey] = useState<string>(
-    initial?.key ?? thresholdKeys[0] ?? 'risk_amount_gbp',
+    initial?.key ??
+      pathSuggestions?.[0]?.path ??
+      thresholdKeys[0] ??
+      'risk_amount_gbp',
   )
   const [type, setType] = useState<'range' | 'enum' | 'boolean'>(
     initial?.type ?? 'range',
@@ -89,13 +97,23 @@ export function SweepDimensionEditor({
           value={key}
           onChange={(event) => setKey(event.target.value)}
         >
-          <optgroup label="Framework thresholds">
-            {thresholdKeys.map((k) => (
-              <option key={k} value={k}>
-                {k}
-              </option>
-            ))}
-          </optgroup>
+          {pathSuggestions && pathSuggestions.length > 0 ? (
+            <optgroup label="Strategy paths">
+              {pathSuggestions.map((s) => (
+                <option key={s.path} value={s.path}>
+                  {s.label}
+                </option>
+              ))}
+            </optgroup>
+          ) : (
+            <optgroup label="Framework thresholds">
+              {thresholdKeys.map((k) => (
+                <option key={k} value={k}>
+                  {k}
+                </option>
+              ))}
+            </optgroup>
+          )}
           <optgroup label="Risk">
             {RISK_KEYS.filter((r) => r.group === 'risk').map((r) => (
               <option key={r.key} value={r.key}>
