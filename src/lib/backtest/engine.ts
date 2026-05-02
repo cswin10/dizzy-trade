@@ -33,6 +33,8 @@ import {
   backtestSource,
   type BacktestCandle,
   type BacktestConfig,
+  type BacktestDiagnostics,
+  type BacktestDiagnosticsPair,
   type RunBacktestResult,
   type SimulatedTrade,
   type SimulatedTradeOutcome,
@@ -82,13 +84,12 @@ function maxParamValue(
   return max
 }
 
-// Pulls the largest indicator lookback out of a composable
-// strategy. The result drives both the candle pre-fetch (so the
-// trailing window is full by the time the strategy starts being
-// evaluated) and the trailing window slice inside the loop. Floors
-// at MIN_WARMUP_CANDLES so short strategies behave the same as the
-// legacy framework path.
-export function computeStrategyWarmup(
+// Pulls the largest indicator lookback param out of a composable
+// strategy. Same walk used by computeStrategyWarmup but without
+// the buffer / floor; surfaced for diagnostics so the UI can flag
+// strategies whose indicators outsize the warmup window the engine
+// chose.
+export function collectMaxParamLookback(
   definition: StrategyDefinition,
 ): number {
   let max = 0
@@ -99,9 +100,6 @@ export function computeStrategyWarmup(
       if (v > max) max = v
     }
   }
-  // Stop and target rules carry their fields at the top level
-  // (e.g. { type: 'atr_multiple', period: 14, multiple: 1.5 }), so
-  // pass the rule itself rather than rule.params.
   const stopMax = maxParamValue(
     definition.exit.stop as unknown as Record<string, unknown>,
   )
@@ -110,7 +108,22 @@ export function computeStrategyWarmup(
   )
   if (stopMax > max) max = stopMax
   if (targetMax > max) max = targetMax
-  return Math.max(MIN_WARMUP_CANDLES, max + WARMUP_BUFFER_CANDLES)
+  return max
+}
+
+// Pulls the largest indicator lookback out of a composable
+// strategy. The result drives both the candle pre-fetch (so the
+// trailing window is full by the time the strategy starts being
+// evaluated) and the trailing window slice inside the loop. Floors
+// at MIN_WARMUP_CANDLES so short strategies behave the same as the
+// legacy framework path.
+export function computeStrategyWarmup(
+  definition: StrategyDefinition,
+): number {
+  return Math.max(
+    MIN_WARMUP_CANDLES,
+    collectMaxParamLookback(definition) + WARMUP_BUFFER_CANDLES,
+  )
 }
 
 const FRANKFURTER_URL = 'https://api.frankfurter.app'
@@ -457,9 +470,20 @@ type EngineSignal = {
   condition_values: Record<string, unknown>
 }
 
+// Inner-loop sink for condition failure stats. Plain object maps to
+// keep the hit count site as a fast property store/load; allocated
+// once per run and mutated in place. Engine calls the recorder
+// callback at most once per group per failed evaluation, so on a
+// 100k-evaluation 1-group strategy the recorder is touched at most
+// 100k times — negligible compared to the indicator math itself.
+type FailureRecorder = (conditionType: string, insufficientData: boolean) => void
+
 type SignalEvaluator = (pair: string, trailing: Candle[]) => EngineSignal | null
 
-function buildSignalEvaluator(config: BacktestConfig): SignalEvaluator {
+function buildSignalEvaluator(
+  config: BacktestConfig,
+  recordFailure: FailureRecorder,
+): SignalEvaluator {
   if (backtestSource(config) === 'framework') {
     if (!config.framework_id) {
       throw new Error('framework_id required for framework-source backtest')
@@ -487,6 +511,11 @@ function buildSignalEvaluator(config: BacktestConfig): SignalEvaluator {
         result.suggestedStop === undefined ||
         result.suggestedTarget === undefined
       ) {
+        // Legacy frameworks do not surface a structured "which
+        // condition blocked the signal" so the diagnostics ledger
+        // simply records the framework as the failing unit. The
+        // composable path below feeds finer-grained data.
+        recordFailure(`framework:${config.framework_id}`, false)
         return null
       }
       return {
@@ -527,6 +556,13 @@ function buildSignalEvaluator(config: BacktestConfig): SignalEvaluator {
       result.stop_price === undefined ||
       result.target_price === undefined
     ) {
+      const failures = result.group_failures
+      if (failures) {
+        for (let i = 0; i < failures.length; i++) {
+          const f = failures[i]!
+          recordFailure(f.condition_type, f.insufficient_data)
+        }
+      }
       return null
     }
     return {
@@ -565,13 +601,45 @@ function computeEntrySize(
 export async function runBacktest(
   config: BacktestConfig,
 ): Promise<RunBacktestResult> {
-  const evaluateSignal = buildSignalEvaluator(config)
   if (config.pairs.length === 0) {
     throw new Error('At least one pair is required')
   }
   if (config.date_range_end.getTime() <= config.date_range_start.getTime()) {
     throw new Error('date_range_end must be after date_range_start')
   }
+
+  // Diagnostics counters. Plain object maps so the hot path stays
+  // on V8's monomorphic property-store fast path. The closures
+  // below increment these in place; nothing allocates per
+  // evaluation other than what the evaluator already does.
+  const conditionFailureBreakdown: Record<string, number> = {}
+  const conditionInsufficientData: Record<string, number> = {}
+  const recordFailure: FailureRecorder = (
+    conditionType,
+    insufficientData,
+  ) => {
+    conditionFailureBreakdown[conditionType] =
+      (conditionFailureBreakdown[conditionType] ?? 0) + 1
+    if (insufficientData) {
+      conditionInsufficientData[conditionType] =
+        (conditionInsufficientData[conditionType] ?? 0) + 1
+    }
+  }
+  const perPairDiag: Record<string, BacktestDiagnosticsPair> = {}
+  for (const pair of config.pairs) {
+    perPairDiag[pair] = {
+      candles_loaded: 0,
+      candles_evaluated: 0,
+      long_evaluations: 0,
+      short_evaluations: 0,
+      signals: 0,
+    }
+  }
+  let evaluationsTotal = 0
+  let firstSignalAt: Date | null = null
+  let lastSignalAt: Date | null = null
+
+  const evaluateSignal = buildSignalEvaluator(config, recordFailure)
 
   const gbpUsdRate = await fetchGbpUsdRate(config.date_range_end)
 
@@ -586,6 +654,12 @@ export async function runBacktest(
     config.strategy_definition_snapshot
       ? computeStrategyWarmup(config.strategy_definition_snapshot)
       : FRAMEWORK_WARMUP_CANDLES
+
+  const warmupParamMax =
+    backtestSource(config) === 'strategy_definition' &&
+    config.strategy_definition_snapshot
+      ? collectMaxParamLookback(config.strategy_definition_snapshot)
+      : 0
 
   const tfMs = TIMEFRAME_MS[config.timeframe]
   // Frameworks fetch only the user-requested range to preserve the
@@ -607,6 +681,7 @@ export async function runBacktest(
       config.date_range_end,
     )
     perPairCandles.set(pair, candles)
+    perPairDiag[pair]!.candles_loaded = candles.length
   }
 
   const timeline = buildTimeline(perPairCandles)
@@ -626,6 +701,14 @@ export async function runBacktest(
     ? config.taker_fee_pct
     : config.maker_fee_pct
   const timeoutCandles = TIMEOUT_CANDLES[config.timeframe]
+
+  // Cache the directions the active strategy can fire so the loop
+  // can split per-pair evaluations into long/short tallies without
+  // re-reading the definition each iteration.
+  const strategyDir =
+    config.strategy_definition_snapshot?.direction ?? 'both'
+  const evaluatesLong = strategyDir === 'long_only' || strategyDir === 'both'
+  const evaluatesShort = strategyDir === 'short_only' || strategyDir === 'both'
 
   for (let i = 0; i < timeline.length; i++) {
     const entry = timeline[i]!
@@ -665,10 +748,25 @@ export async function runBacktest(
       )
       .map(toHyperliquidCandle)
 
+    // Diagnostics: count this as one evaluation against the pair.
+    // The closure may further attribute the failure to a specific
+    // condition via the recordFailure callback wired in to
+    // buildSignalEvaluator.
+    evaluationsTotal += 1
+    const pairDiag = perPairDiag[entry.pair]
+    if (pairDiag) {
+      pairDiag.candles_evaluated += 1
+      if (evaluatesLong) pairDiag.long_evaluations += 1
+      if (evaluatesShort) pairDiag.short_evaluations += 1
+    }
+
     const signal = evaluateSignal(entry.pair, trailing)
     if (!signal) continue
 
     state.signals_total += 1
+    if (pairDiag) pairDiag.signals += 1
+    if (firstSignalAt === null) firstSignalAt = entry.candle.candle_open_at
+    lastSignalAt = entry.candle.candle_open_at
 
     const direction = signal.direction
     const rawEntry = signal.raw_entry
@@ -780,10 +878,25 @@ export async function runBacktest(
     )
   })
 
+  const diagnostics: BacktestDiagnostics = {
+    warmup_candles_used: warmupCandles,
+    warmup_param_max: warmupParamMax,
+    per_pair: perPairDiag,
+    evaluations_total: evaluationsTotal,
+    evaluations_passed: state.signals_total,
+    evaluations_blocked_by_rules: state.signals_blocked,
+    condition_failure_breakdown: conditionFailureBreakdown,
+    condition_insufficient_data: conditionInsufficientData,
+    first_signal_at: firstSignalAt ? firstSignalAt.toISOString() : null,
+    last_signal_at: lastSignalAt ? lastSignalAt.toISOString() : null,
+    sample_rate: 1,
+  }
+
   return {
     trades: [...state.closed_trades, ...state.blocked_signals],
     signals_total: state.signals_total,
     signals_blocked_by_rules: state.signals_blocked,
     gbp_usd_rate_used: gbpUsdRate,
+    diagnostics,
   }
 }

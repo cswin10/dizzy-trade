@@ -219,7 +219,12 @@ export function BatchLeaderboard({ runs }: BatchLeaderboardProps) {
                     {row.status}
                   </span>
                 </td>
-                <Cell highlight={false}>{row.total_trades ?? '—'}</Cell>
+                <Cell highlight={false}>
+                  <div className="inline-flex items-center justify-end gap-2">
+                    <span>{row.total_trades ?? '—'}</span>
+                    <ZeroSignalBadge row={row} />
+                  </div>
+                </Cell>
                 <Cell highlight={row.id === bestByWin && !greyed}>
                   {formatPct(row.win_rate)}
                 </Cell>
@@ -303,5 +308,79 @@ function Cell({
     >
       {children}
     </td>
+  )
+}
+
+// Flag for runs that completed without producing any trades. The
+// summary copy is sourced from the engine's diagnostics ledger
+// (BacktestDiagnostics) so the operator sees the bottleneck
+// condition right in the leaderboard rather than having to click
+// into every empty row to find out why.
+function ZeroSignalBadge({
+  row,
+}: {
+  row: BatchLeaderboardProps['runs'][number]
+}) {
+  const [open, setOpen] = useState(false)
+  if (row.status !== 'completed') return null
+  if ((row.total_trades ?? 0) > 0) return null
+
+  const summary = row.diagnostics_summary
+  const tooltipLines: string[] = []
+  if (summary) {
+    tooltipLines.push(
+      `Evaluated ${summary.evaluations_total.toLocaleString('en-GB')} times.`,
+    )
+    if (summary.top_failure_type) {
+      const insufficient = summary.top_failure_insufficient_data
+        ? ' (insufficient candle history)'
+        : ''
+      tooltipLines.push(
+        `Top blocker: ${summary.top_failure_type} · ${summary.top_failure_count.toLocaleString('en-GB')} failures${insufficient}.`,
+      )
+    }
+    if (
+      summary.warmup_param_max > summary.warmup_candles_used &&
+      summary.warmup_param_max > 0
+    ) {
+      tooltipLines.push(
+        `Warmup mismatch: needs ${summary.warmup_param_max} candles, engine used ${summary.warmup_candles_used}.`,
+      )
+    }
+  } else {
+    tooltipLines.push('No diagnostics available for this run.')
+  }
+  const tooltip = tooltipLines.join('\n')
+
+  return (
+    <span className="relative inline-flex">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        title={tooltip}
+        aria-label="No signals — show diagnostics"
+        className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-amber-400/50 bg-amber-500/15 text-[10px] font-semibold text-amber-200 hover:bg-amber-500/25"
+      >
+        !
+      </button>
+      {open ? (
+        <div className="absolute right-0 top-5 z-10 w-72 rounded-md border border-white/10 bg-bg p-3 text-left text-[11px] leading-snug text-white/80 shadow-lg">
+          <div className="mb-2 text-[10px] uppercase tracking-wider text-amber-300">
+            Why no signals?
+          </div>
+          <ul className="space-y-1 whitespace-pre-line text-white/75">
+            {tooltipLines.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+          <Link
+            href={`/backtest/${row.id}`}
+            className="mt-2 inline-block text-accent hover:underline"
+          >
+            Open full diagnostics →
+          </Link>
+        </div>
+      ) : null}
+    </span>
   )
 }

@@ -260,6 +260,7 @@ export async function executeBacktestRunAction(
         test_metrics: testMetrics,
         overfit_warning_triggered: overfit,
         gbp_usd_rate_used: result.gbp_usd_rate_used,
+        diagnostics: result.diagnostics,
       })
       .eq('id', runId)
     if (updateError) throw new Error(updateError.message)
