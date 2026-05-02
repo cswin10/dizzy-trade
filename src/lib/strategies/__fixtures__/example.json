@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "name": "Stub strategy for engine validation",
+  "description": "Empty conditions array means the group always fires; useful for testing the engine wiring before condition evaluators exist.",
+  "direction": "long_only",
+  "entry": {
+    "groups": [
+      {
+        "direction": "long",
+        "conditions": []
+      }
+    ]
+  },
+  "exit": {
+    "stop": { "type": "fixed_pct", "pct": 1.0 },
+    "target": { "type": "fixed_rr", "rr": 2.0 }
+  },
+  "sizing": {
+    "type": "fixed_gbp_risk",
+    "amount": 30
+  }
+}

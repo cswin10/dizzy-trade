@@ -358,39 +358,44 @@ export async function processNextSweepBatchAction(
     return { ok: true, id: sweepId }
   }
 
-  // First batch: warm the candle cache once so the parallel runs
-  // that follow all hit the cache instead of racing to fetch the
-  // same data from Hyperliquid. Every combination in a sweep shares
-  // the same pairs, timeframe, and date range, so this fully
-  // populates the cache for the remainder of the run.
-  const isFirstBatch = sweep.status === 'pending'
-  if (isFirstBatch) {
+  if (sweep.status === 'pending') {
     await service
       .from('backtest_sweeps')
       .update({ status: 'running', run_started_at: new Date().toISOString() })
       .eq('id', sweepId)
-    try {
-      const start = new Date(sweep.date_range_start)
-      const end = new Date(sweep.date_range_end)
-      for (const pair of sweep.pairs) {
-        await ensureCandles(
-          pair,
-          sweep.timeframe as BacktestTimeframe,
-          start,
-          end,
-        )
-      }
-    } catch (error) {
-      // A warmup failure is not fatal: each individual combination
-      // will retry the fetch on its own. Log via error_message and
-      // proceed; the per-run error reporting will surface anything
-      // that ultimately stays broken.
-      const message = error instanceof Error ? error.message : String(error)
-      await service
-        .from('backtest_sweeps')
-        .update({ error_message: `Cache warmup: ${message}` })
-        .eq('id', sweepId)
+  }
+
+  // Warm the candle cache before every batch, not just the first.
+  // The cache lookup is near-instant once the data is populated, so
+  // calling ensureCandles here is effectively free on subsequent
+  // batches. The point is that any partial gap left over from a
+  // previous warmup (e.g. a brief network burp on one pair) gets
+  // filled here, serialised through this loop, rather than racing
+  // across the parallel runBacktest calls in the batch and tripping
+  // the rate limit. Every combination in a sweep shares the same
+  // pairs, timeframe, and date range, so warming once per batch
+  // covers every run that follows.
+  try {
+    const start = new Date(sweep.date_range_start)
+    const end = new Date(sweep.date_range_end)
+    for (const pair of sweep.pairs) {
+      await ensureCandles(
+        pair,
+        sweep.timeframe as BacktestTimeframe,
+        start,
+        end,
+      )
     }
+  } catch (error) {
+    // A warmup failure is not fatal: each individual combination
+    // will retry the fetch on its own. Log via error_message and
+    // proceed; the per-run error reporting will surface anything
+    // that ultimately stays broken.
+    const message = error instanceof Error ? error.message : String(error)
+    await service
+      .from('backtest_sweeps')
+      .update({ error_message: `Cache warmup: ${message}` })
+      .eq('id', sweepId)
   }
 
   const safeBatchSize = Math.max(1, Math.min(10, Math.floor(batchSize)))
