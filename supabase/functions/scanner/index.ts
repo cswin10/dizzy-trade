@@ -47,6 +47,16 @@ import {
   type RulesStatus,
 } from '../_shared/rules.ts'
 import { nextCandleClose } from '../_shared/timeframes.ts'
+import {
+  loadActiveStrategy,
+  type ActiveStrategy,
+} from '../_shared/active-strategy.ts'
+import '../_shared/strategies/register.ts'
+import { evaluateStrategy as evaluateComposableDefinition } from '../_shared/strategies/evaluator.ts'
+import type {
+  EvaluationContext,
+  StrategyDefinition,
+} from '../_shared/strategies/types.ts'
 
 const CONCURRENCY = 5
 const HISTORY_WINDOW_MINUTES = 60 * 24 // 24 hours
@@ -358,6 +368,7 @@ type AlertInsert = {
   gbp_usd_rate: number | null
   rules_status: RulesStatus | null
   rules_violations: RuleViolation[] | null
+  alert_source?: 'framework' | 'composable'
 }
 
 async function insertAlert(alert: AlertInsert): Promise<string | null> {
@@ -586,6 +597,244 @@ async function evaluateStrategy(args: {
   return summary
 }
 
+// Mirror of evaluateStrategy for composable strategy_definitions.
+// The shape of work (per-pair candle fetch, evaluator call,
+// position sizing, rules evaluation, alert insert, Telegram fan-
+// out) is the same, so the helpers above (computeSizing,
+// computeRrRatio, evaluateRules, insertAlert, sendTelegramAlert)
+// stay shared. The differences are bundled here so the legacy
+// path stays untouched.
+async function evaluateComposableStrategy(args: {
+  strategy: ActiveStrategy
+  markets: Map<string, MarketData>
+  universeBySymbol: Map<string, UniverseRow>
+  gbpUsdRate: number
+  rulesState: RulesState
+  scanStartedAt: number
+  budgetState: { softLogged: boolean; truncated: boolean }
+}): Promise<StrategySummary> {
+  const {
+    strategy,
+    markets,
+    universeBySymbol,
+    gbpUsdRate,
+    rulesState,
+    scanStartedAt,
+    budgetState,
+  } = args
+  const summary: StrategySummary = {
+    name: strategy.name,
+    scanned: 0,
+    triggered: 0,
+  }
+  const definition = strategy.definition
+  if (!definition) {
+    console.warn(
+      `[scanner] composable strategy=${strategy.name} has no definition snapshot, skipping`,
+    )
+    return summary
+  }
+  // Composable strategies do not yet expose a top-level
+  // risk_amount_gbp; pull it from the sizing rule when it is
+  // GBP-risk-based, otherwise leave null and rules-engine inputs
+  // fall back to estimates.
+  const sizingRule = definition.sizing
+  const strategyRiskGbp =
+    sizingRule.type === 'fixed_gbp_risk' ? sizingRule.amount : null
+
+  await pMap(strategy.pairs, CONCURRENCY, async (symbol) => {
+    const elapsed = Date.now() - scanStartedAt
+    if (elapsed > HARD_BUDGET_MS) {
+      budgetState.truncated = true
+      return
+    }
+    if (elapsed > SOFT_BUDGET_MS && !budgetState.softLogged) {
+      console.warn(
+        `[scanner] soft time budget exceeded at ${elapsed}ms, continuing`,
+      )
+      budgetState.softLogged = true
+    }
+    const meta = markets.get(symbol)
+    if (!meta) return
+    summary.scanned++
+
+    let candles: Candle[] = []
+    try {
+      candles = await getCandles(
+        symbol,
+        strategy.timeframe as Timeframe,
+        CANDLE_LOOKBACK,
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.warn(`[scanner] ${symbol} candle fetch failed: ${message}`)
+      return
+    }
+    if (candles.length === 0) return
+
+    const universeRow = universeBySymbol.get(symbol)
+    const last = candles[candles.length - 1]!
+
+    const evalContext: EvaluationContext = {
+      candles,
+      currentCandle: last,
+      currentPrice: last.c,
+      // Live scanner has funding from market context; expose it so
+      // the funding_threshold condition can fire instead of always
+      // returning missing_data.
+      funding: meta.funding,
+      openInterest: meta.openInterest,
+    }
+
+    let result
+    try {
+      result = evaluateComposableDefinition(definition, evalContext)
+    } catch (error) {
+      console.error(
+        `[scanner] composable strategy=${strategy.name} threw for ${symbol}:`,
+        error,
+      )
+      return
+    }
+    if (!result.triggered) return
+    summary.triggered++
+    const isWatchlist = universeRow?.is_watchlist ?? true
+
+    // Position sizing: if the definition specifies a coin-
+    // denominated size, honour it. Otherwise fall back to the
+    // GBP-risk path the legacy scanner uses.
+    let sizing: ReturnType<typeof computeSizing> | null = null
+    if (
+      result.entry_price != null &&
+      result.stop_price != null &&
+      sizingRule.type === 'fixed_gbp_risk' &&
+      sizingRule.amount > 0
+    ) {
+      sizing = computeSizing({
+        entry: result.entry_price,
+        stop: result.stop_price,
+        riskGbp: sizingRule.amount,
+        gbpUsdRate,
+      })
+    } else if (
+      result.entry_price != null &&
+      sizingRule.type === 'fixed_position_size'
+    ) {
+      const sizeUsd = sizingRule.size * result.entry_price
+      sizing = {
+        positionSizeCoin: sizingRule.size,
+        positionSizeUsd: sizeUsd,
+        leverageImplied: null,
+      }
+    }
+    const validUntil = nextCandleClose(strategy.timeframe as Timeframe)
+
+    const rrRatio = computeRrRatio(
+      result.direction ?? null,
+      result.entry_price ?? null,
+      result.stop_price ?? null,
+      result.target_price ?? null,
+    )
+
+    // For composable strategies with non-GBP sizing the daily-loss
+    // rule needs an estimate of risk per trade. Use an approximate
+    // 5% of position notional as a stop-distance proxy. This is
+    // documented as approximate; the rules engine treats daily
+    // loss as advisory anyway.
+    const projectedRiskGbp =
+      strategyRiskGbp ??
+      (sizing && sizing.positionSizeUsd != null
+        ? (sizing.positionSizeUsd * 0.05) / Math.max(gbpUsdRate, 1e-9)
+        : null)
+
+    const rulesContext: RulesContext = {
+      strategy: {
+        risk_amount_gbp: projectedRiskGbp ?? 0,
+        min_rr: 0, // composable strategies do not impose a global min_rr
+        max_concurrent_positions: strategy.max_concurrent_positions,
+        max_daily_loss_gbp: strategy.max_daily_loss_gbp,
+        max_consecutive_losers: strategy.max_consecutive_losers,
+      },
+      proposedTrade: {
+        risk_amount_gbp: projectedRiskGbp,
+        rr_ratio: rrRatio,
+      },
+      currentState: rulesState,
+    }
+    const rulesResult = evaluateRules(rulesContext)
+
+    // Build a per-condition snapshot map alongside the engine's
+    // flat condition_values so the alerts UI can render
+    // group / index / pass per condition.
+    const composableConditionValues: Record<string, unknown> = {
+      source: 'composable',
+      group_index: result.triggered_group_index ?? null,
+      group_direction: result.direction ?? null,
+      values: result.condition_values,
+    }
+
+    const alertId = await insertAlert({
+      strategy_id: strategy.id,
+      framework_id: 'composable',
+      symbol,
+      coingecko_id: universeRow?.coingecko_id ?? null,
+      condition_values: composableConditionValues,
+      suggested_direction: result.direction ?? null,
+      suggested_entry: result.entry_price ?? null,
+      suggested_stop: result.stop_price ?? null,
+      suggested_target: result.target_price ?? null,
+      is_watchlist: isWatchlist,
+      notified_telegram: false,
+      position_size_coin: sizing?.positionSizeCoin ?? null,
+      position_size_usd: sizing?.positionSizeUsd ?? null,
+      leverage_implied: sizing?.leverageImplied ?? null,
+      valid_until: validUntil.toISOString(),
+      risk_amount_gbp: projectedRiskGbp,
+      gbp_usd_rate: gbpUsdRate,
+      rules_status: rulesResult.status,
+      rules_violations: rulesResult.violations,
+      alert_source: 'composable',
+    })
+    if (!alertId) return
+
+    if (
+      isWatchlist &&
+      result.direction &&
+      result.entry_price != null &&
+      result.stop_price != null &&
+      result.target_price != null
+    ) {
+      const ok = await sendTelegramAlert({
+        framework_name: strategy.name,
+        symbol,
+        direction: result.direction,
+        entry: result.entry_price,
+        stop: result.stop_price,
+        target: result.target_price,
+        funding: meta.funding,
+        oiDeltaPct: 0,
+        appUrl: `${APP_URL}/alerts`,
+        positionSizeCoin: sizing?.positionSizeCoin ?? null,
+        positionSizeUsd: sizing?.positionSizeUsd ?? null,
+        leverageImplied: sizing?.leverageImplied ?? null,
+        riskAmountGbp: projectedRiskGbp ?? 0,
+        validUntil,
+        timeframe: strategy.timeframe as Timeframe,
+        rulesStatus: rulesResult.status,
+        rulesViolations: rulesResult.violations,
+      })
+      if (ok) await markNotified(alertId)
+    }
+  })
+
+  // Compact log: signal counts by condition pass instead of full
+  // condition_values map.
+  console.log(
+    `[scanner] composable strategy=${strategy.name} pairs=${strategy.pairs.length} scanned=${summary.scanned} triggered=${summary.triggered}`,
+  )
+  return summary
+}
+
 async function runScan(): Promise<{
   scanned: number
   triggered: number
@@ -619,8 +868,27 @@ async function runScan(): Promise<{
   }
   await writeSnapshots(snapshots)
 
-  const strategies = await loadActiveStrategies()
-  if (strategies.length === 0) {
+  // Resolve the single active strategy. Prefers the composable
+  // table when both have an active row (and logs the conflict).
+  // Falls back to the legacy multi-strategy loader if the unified
+  // resolver returns null AND a legacy row is somehow active
+  // outside the index, so the v1 scanner stays compatible during
+  // the transition.
+  const activeStrategy: ActiveStrategy | null =
+    await loadActiveStrategy(supabase())
+  const strategies =
+    activeStrategy && activeStrategy.source === 'framework'
+      ? // Framework path: use the legacy loader to surface every
+        // active framework row at once. The unified resolver hands
+        // back exactly one but the legacy loader also supports the
+        // (unsupported in v1) multi-active scenario, so we keep it
+        // for parity.
+        await loadActiveStrategies()
+      : []
+  if (
+    strategies.length === 0 &&
+    (!activeStrategy || activeStrategy.source !== 'composable')
+  ) {
     console.warn('[scanner] no active strategies, nothing to evaluate')
     return {
       scanned: 0,
@@ -633,12 +901,13 @@ async function runScan(): Promise<{
     }
   }
 
-  // Union of pair symbols across all active strategies. History and
-  // narrative heat get loaded once for this set rather than per
-  // strategy.
+  // Union of pair symbols across the active source.
   const strategyPairs = new Set<string>()
   for (const s of strategies) {
     for (const sym of s.pair_symbols) strategyPairs.add(sym)
+  }
+  if (activeStrategy && activeStrategy.source === 'composable') {
+    for (const sym of activeStrategy.pairs) strategyPairs.add(sym)
   }
 
   const [
@@ -683,6 +952,25 @@ async function runScan(): Promise<{
       `[scanner] strategy=${summary.name} scanned=${summary.scanned} triggered=${summary.triggered}`,
     )
     if (budgetState.truncated) break
+  }
+
+  // Composable strategy path. At most one composable strategy is
+  // active at any time. Runs after the framework loop so a
+  // misconfigured "both active" state still produces alerts from
+  // the composable side last.
+  if (activeStrategy && activeStrategy.source === 'composable') {
+    const summary = await evaluateComposableStrategy({
+      strategy: activeStrategy,
+      markets,
+      universeBySymbol,
+      gbpUsdRate,
+      rulesState,
+      scanStartedAt: started,
+      budgetState,
+    })
+    summaries.push(summary)
+    totalScanned += summary.scanned
+    totalTriggered += summary.triggered
   }
 
   // Position sync: poll the Hyperliquid main accounts that have linked

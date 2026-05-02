@@ -127,6 +127,15 @@ export async function toggleStrategyActiveAction(
   const deactivated = await deactivateOthers(service, id)
   if (!deactivated.ok) return deactivated
 
+  // Cross-table mutual exclusion: activating a legacy strategy
+  // also deactivates any composable definition that is live, so
+  // the scanner only ever sees one active source at a time.
+  const { error: composableError } = await service
+    .from('strategy_definitions')
+    .update({ is_active: false, updated_at: nowIso })
+    .eq('is_active', true)
+  if (composableError) return { ok: false, message: composableError.message }
+
   const { error } = await service
     .from('strategies')
     .update({ is_active: true, updated_at: nowIso })

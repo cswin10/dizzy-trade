@@ -218,6 +218,79 @@ export async function archiveStrategyDefinitionAction(
   return { ok: true, row: rowToDomain(data) }
 }
 
+// Cross-table activation. Composable and legacy strategies share
+// the "single active" invariant: at most one row across both
+// tables for a tenant should be active at once. We enforce this
+// by deactivating every legacy row plus every other composable
+// row before flipping the target on. The three writes are
+// sequential (supabase-js does not expose multi-statement
+// transactions); the worst case is a brief window where no
+// strategy is active, which the scanner handles by skipping the
+// tick. The Postgres partial unique index on strategy_definitions
+// catches a concurrent activation racing against this one.
+export async function activateStrategyDefinitionAction(
+  id: string,
+): Promise<StrategyDefinitionActionResult> {
+  const ctx = await resolveTenant()
+  if (!ctx.ok) return { ok: false, message: ctx.error }
+
+  const service = createServiceClient()
+  const nowIso = new Date().toISOString()
+
+  // 1. Deactivate every active legacy strategy. The legacy table
+  // has no tenant_id (single-trader v1) so this scopes globally.
+  const { error: legacyError } = await service
+    .from('strategies')
+    .update({ is_active: false, updated_at: nowIso })
+    .eq('is_active', true)
+  if (legacyError) return { ok: false, message: legacyError.message }
+
+  // 2. Deactivate every other composable strategy in this tenant.
+  const { error: compError } = await service
+    .from('strategy_definitions')
+    .update({ is_active: false, updated_at: nowIso })
+    .eq('tenant_id', ctx.tenantId)
+    .neq('id', id)
+  if (compError) return { ok: false, message: compError.message }
+
+  // 3. Activate the target.
+  const { data, error } = await service
+    .from('strategy_definitions')
+    .update({ is_active: true, updated_at: nowIso })
+    .eq('id', id)
+    .eq('tenant_id', ctx.tenantId)
+    .select('*')
+    .single()
+  if (error || !data) {
+    return { ok: false, message: error?.message ?? 'Activation failed' }
+  }
+
+  revalidatePath('/settings')
+  return { ok: true, row: rowToDomain(data) }
+}
+
+export async function deactivateStrategyDefinitionAction(
+  id: string,
+): Promise<StrategyDefinitionActionResult> {
+  const ctx = await resolveTenant()
+  if (!ctx.ok) return { ok: false, message: ctx.error }
+
+  const service = createServiceClient()
+  const { data, error } = await service
+    .from('strategy_definitions')
+    .update({ is_active: false, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .eq('tenant_id', ctx.tenantId)
+    .select('*')
+    .single()
+  if (error || !data) {
+    return { ok: false, message: error?.message ?? 'Deactivation failed' }
+  }
+
+  revalidatePath('/settings')
+  return { ok: true, row: rowToDomain(data) }
+}
+
 export async function deleteStrategyDefinitionAction(
   id: string,
 ): Promise<{ ok: boolean; message?: string }> {
