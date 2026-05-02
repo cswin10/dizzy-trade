@@ -475,6 +475,42 @@ export type Database = {
         }
         Relationships: []
       }
+      strategy_definitions: {
+        Row: {
+          id: string
+          tenant_id: string
+          name: string
+          description: string | null
+          definition: Record<string, unknown>
+          schema_version: number
+          is_archived: boolean
+          created_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          id?: string
+          tenant_id: string
+          name: string
+          description?: string | null
+          definition: Record<string, unknown>
+          schema_version?: number
+          is_archived?: boolean
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          id?: string
+          tenant_id?: string
+          name?: string
+          description?: string | null
+          definition?: Record<string, unknown>
+          schema_version?: number
+          is_archived?: boolean
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       narrative_tags: {
         Row: {
           id: string
