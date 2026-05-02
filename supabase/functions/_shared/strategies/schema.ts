@@ -60,5 +60,8 @@ void stopRuleSchemaRegistry
 void targetRuleSchemaRegistry
 void sizingRuleSchemaRegistry
 
-// Tiny helper kept for parity with the Node module export list.
-export type { Condition, SizingRule, StopRule, StrategyDefinition, TargetRule }
+// Type re-exports are dropped here on purpose: the bundler used
+// for the Edge Function deploy strips `export` keywords during
+// concatenation, which would turn `export type { ... }` into
+// invalid `type { ... }`. Callers import these types directly
+// from ./types.ts.

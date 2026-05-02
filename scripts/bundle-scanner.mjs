@@ -102,7 +102,16 @@ function stripExportKeywords(source) {
       '[bundler] warning: re-export (export *) detected, may need manual handling',
     )
   }
-  return source.replace(
+  let out = source
+  // `export type { Foo, Bar }` and `export { Foo, Bar }` are
+  // type-only re-export lists; they exist for module-API parity
+  // but contribute no runtime, so we drop them entirely. The
+  // simpler regex below would otherwise turn them into invalid
+  // `type { Foo, Bar }` syntax once the leading `export` is
+  // stripped.
+  out = out.replace(/^export\s+type\s*\{[^}]*\}\s*;?\s*$/gm, '')
+  out = out.replace(/^export\s*\{[^}]*\}\s*;?\s*$/gm, '')
+  return out.replace(
     /^export\s+(type\b|interface\b|const\b|let\b|var\b|function\b|class\b|enum\b|abstract\b|async\b)/gm,
     '$1',
   )

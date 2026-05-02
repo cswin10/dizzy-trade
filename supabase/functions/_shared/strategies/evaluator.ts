@@ -271,7 +271,8 @@ export function evaluateStrategy(
   return { triggered: false, condition_values: conditionValues }
 }
 
-// Re-export Candle type for external consumers building an
-// EvaluationContext without importing the hyperliquid module
-// directly.
-export type { Candle }
+// Candle is intentionally not re-exported here. The bundler used
+// for the Edge Function deploy strips `export` keywords during
+// concatenation, which would turn `export type { Candle }` into
+// invalid `type { Candle }`. Callers import Candle directly from
+// the hyperliquid module instead.
