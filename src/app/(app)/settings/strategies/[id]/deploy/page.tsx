@@ -23,22 +23,34 @@ export default async function DeployStrategyPage({
   if (!user) redirect('/sign-in')
 
   const service = createServiceClient()
-  const { data: definition } = await service
-    .from('strategy_definitions')
-    .select('id, name, pairs, timeframe, definition, deployment_status')
-    .eq('id', params.id)
-    .single()
+  const [definitionRes, universeRes, recentBacktestsRes] = await Promise.all([
+    service
+      .from('strategy_definitions')
+      .select('id, name, pairs, timeframe, definition, deployment_status')
+      .eq('id', params.id)
+      .single(),
+    service
+      .from('universe')
+      .select('symbol')
+      .eq('is_active', true)
+      .order('symbol', { ascending: true }),
+    service
+      .from('backtest_runs')
+      .select(
+        'id, name, total_trades, win_rate, avg_r, total_pnl_gbp, max_drawdown_gbp, sharpe_ratio, created_at, status',
+      )
+      .eq('strategy_definition_id', params.id)
+      .eq('status', 'completed')
+      .order('created_at', { ascending: false })
+      .limit(10),
+  ])
+  const definition = definitionRes.data
   if (!definition) notFound()
-
-  const { data: recentBacktests } = await service
-    .from('backtest_runs')
-    .select(
-      'id, name, total_trades, win_rate, avg_r, total_pnl_gbp, max_drawdown_gbp, sharpe_ratio, created_at, status',
-    )
-    .eq('strategy_definition_id', params.id)
-    .eq('status', 'completed')
-    .order('created_at', { ascending: false })
-    .limit(10)
+  // Universe powers the chip list. The strategy's own pairs are
+  // pre-ticked so the operator's default is "deploy on what was
+  // backtested" but they can extend or trim from there.
+  const pairUniverse = (universeRes.data ?? []).map((r) => String(r.symbol))
+  const recentBacktests = recentBacktestsRes.data ?? []
 
   return (
     <PageContainer>
@@ -58,7 +70,8 @@ export default async function DeployStrategyPage({
             | 'paused'
             | 'archived',
         }}
-        recentBacktests={(recentBacktests ?? []).map((r) => ({
+        pairUniverse={pairUniverse}
+        recentBacktests={recentBacktests.map((r) => ({
           id: r.id,
           name: r.name,
           total_trades: r.total_trades ?? null,

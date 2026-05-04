@@ -22,6 +22,13 @@ export type DeployStrategyWizardProps = {
     timeframe: string
     deployment_status: 'draft' | 'live' | 'paused' | 'archived'
   }
+  // Full set of tradable symbols from the universe table. The
+  // strategy's own configured pairs are pre-ticked when the
+  // wizard mounts, but the operator can deselect or add others
+  // before deploying. Falls back to the strategy's pairs when the
+  // universe is empty so the chips always have something to
+  // render.
+  pairUniverse: string[]
   recentBacktests: Array<{
     id: string
     name: string
@@ -55,6 +62,7 @@ function formatNumber(value: number | null, digits = 2): string {
 
 export function DeployStrategyWizard({
   strategy,
+  pairUniverse,
   recentBacktests,
 }: DeployStrategyWizardProps) {
   const router = useRouter()
@@ -65,6 +73,25 @@ export function DeployStrategyWizard({
   )
   const [riskGbp, setRiskGbp] = useState(10)
   const [pairs, setPairs] = useState<string[]>([...strategy.pairs])
+  // Universe-first ordering with anything the strategy specifically
+  // mentions appended (deduped) so a strategy configured against a
+  // ticker the operator later removed from the universe still
+  // surfaces as a chip.
+  const pairChoices = (() => {
+    const seen = new Set<string>()
+    const out: string[] = []
+    for (const p of pairUniverse) {
+      if (seen.has(p)) continue
+      seen.add(p)
+      out.push(p)
+    }
+    for (const p of strategy.pairs) {
+      if (seen.has(p)) continue
+      seen.add(p)
+      out.push(p)
+    }
+    return out
+  })()
   const [maxConcurrent, setMaxConcurrent] = useState(1)
   const [maxDailyLoss, setMaxDailyLoss] = useState<number | null>(50)
   const [maxConsecutiveLosers, setMaxConsecutiveLosers] = useState<
@@ -223,24 +250,41 @@ export function DeployStrategyWizard({
           <span className="block text-[10px] uppercase tracking-wider text-white/45">
             Live pairs
           </span>
-          <div className="mt-1 flex flex-wrap gap-1">
-            {strategy.pairs.map((p) => {
-              const selected = pairs.includes(p)
-              return (
-                <button
-                  key={p}
-                  type="button"
-                  onClick={() => togglePair(p)}
-                  className={
-                    selected
-                      ? 'rounded-full border border-accent bg-accent/15 px-2.5 py-0.5 text-[11px] text-white'
-                      : 'rounded-full border border-white/10 px-2.5 py-0.5 text-[11px] text-white/55 hover:border-white/20 hover:text-white'
-                  }
-                >
-                  {p}
-                </button>
-              )
-            })}
+          <p className="mt-1 text-[11px] text-white/45">
+            {strategy.pairs.length > 0
+              ? `${strategy.pairs.length} pair${strategy.pairs.length === 1 ? '' : 's'} from this strategy are pre-selected. Click to toggle, or pick others from the universe.`
+              : 'This strategy has no pre-configured pairs. Pick one or more from the universe below.'}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-1">
+            {pairChoices.length === 0 ? (
+              <span className="text-[11px] text-white/45">
+                No tradable pairs available. Add at least one symbol to the
+                universe before deploying.
+              </span>
+            ) : (
+              pairChoices.map((p) => {
+                const selected = pairs.includes(p)
+                const fromStrategy = strategy.pairs.includes(p)
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => togglePair(p)}
+                    title={fromStrategy ? 'Pre-configured on this strategy' : undefined}
+                    className={
+                      selected
+                        ? 'rounded-full border border-accent bg-accent/15 px-2.5 py-0.5 text-[11px] text-white'
+                        : 'rounded-full border border-white/10 px-2.5 py-0.5 text-[11px] text-white/55 hover:border-white/20 hover:text-white'
+                    }
+                  >
+                    {p}
+                    {fromStrategy && !selected ? (
+                      <span className="ml-1 text-[9px] text-white/35">★</span>
+                    ) : null}
+                  </button>
+                )
+              })
+            )}
           </div>
         </div>
       </Section>
