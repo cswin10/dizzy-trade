@@ -1,6 +1,8 @@
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 
+import { computeBacktestAnalyticsAction } from '@/app/actions/backtest-analytics'
+import { BacktestAnalyticsSections } from '@/components/shared/BacktestAnalyticsSections'
 import { BacktestDiagnosticsPanel } from '@/components/shared/BacktestDiagnosticsPanel'
 import {
   BacktestEquityCurveChart,
@@ -210,7 +212,36 @@ export default async function BacktestResultPage({
     equity.splitIndex = idx >= 0 ? idx : null
   }
   const distribution = buildDistribution(trades)
-  const pairBreakdown = buildPairBreakdown(trades)
+  // Section B uses the extended per-pair shape from the analytics
+  // module; the basic buildPairBreakdown is no longer rendered.
+  // Computed in parallel with analytics so the page only pays one
+  // server-side latency cost for both.
+  const analyticsStart = Date.now()
+  const analyticsRes = await computeBacktestAnalyticsAction(params.run_id)
+  const analyticsMs = Date.now() - analyticsStart
+  const analytics = analyticsRes.ok ? analyticsRes.data : null
+  const pairBreakdown: PairPerformanceRow[] = analytics
+    ? analytics.per_pair.map((p) => ({
+        pair: p.pair,
+        trades: p.trades,
+        win_rate: p.win_rate,
+        avg_r: p.avg_r,
+        total_pnl_gbp: p.total_pnl_gbp,
+        max_drawdown_gbp: p.max_drawdown_gbp,
+        sharpe_ratio: p.sharpe_ratio,
+        best_trade_gbp: p.best_trade_gbp,
+        worst_trade_gbp: p.worst_trade_gbp,
+        profit_factor: p.profit_factor,
+      }))
+    : buildPairBreakdown(trades)
+  if (process.env.NODE_ENV !== 'production') {
+    // Soft performance log so the operator can spot regressions on
+    // dev without coupling to a tracing setup. Production swallows
+    // it to keep noise out of server logs.
+    console.log(
+      `[backtest detail] analytics computed in ${analyticsMs}ms (${trades.length} trades)`,
+    )
+  }
 
   const backHref = parentSweep
     ? `/backtest/sweeps/${parentSweep.id}`
@@ -342,6 +373,10 @@ export default async function BacktestResultPage({
                 </h2>
                 <BacktestTradesTable trades={trades} />
               </section>
+
+              {analytics ? (
+                <BacktestAnalyticsSections analytics={analytics} />
+              ) : null}
 
               {run.diagnostics ? (
                 <BacktestDiagnosticsPanel
