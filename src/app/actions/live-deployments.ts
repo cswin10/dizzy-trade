@@ -137,7 +137,7 @@ export async function pauseDeploymentAction(
   const ctx = await resolveTenant()
   if (!ctx.ok) return { ok: false, message: ctx.error }
   const service = createServiceClient()
-  const { client } = getExchangeClient()
+  const { client } = await getExchangeClient(ctx.tenantId)
   // Cancel every still-open order belonging to this deployment.
   // Phase 1's mock cancel-all is global so we settle for a per-
   // pair fan-out using the deployment's pairs.
@@ -211,7 +211,7 @@ export async function killAllAction(): Promise<
   const ctx = await resolveTenant()
   if (!ctx.ok) return { ok: false, message: ctx.error }
   const service = createServiceClient()
-  const { client } = getExchangeClient()
+  const { client } = await getExchangeClient(ctx.tenantId)
   const result = await pauseAllForTenant(service, client, ctx.tenantId)
   // Roll matching strategies back to paused so the scanner stops
   // emitting from them on the next tick.

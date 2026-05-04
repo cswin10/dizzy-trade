@@ -910,6 +910,7 @@ export type Database = {
           notification_sent_at: string | null
           telegram_sent_at: string | null
           telegram_message_id: string | null
+          cloid: string | null
           failure_reason: string | null
           created_at: string
           updated_at: string
@@ -961,6 +962,7 @@ export type Database = {
           notification_sent_at?: string | null
           telegram_sent_at?: string | null
           telegram_message_id?: string | null
+          cloid?: string | null
           failure_reason?: string | null
           created_at?: string
           updated_at?: string
@@ -1012,6 +1014,7 @@ export type Database = {
           notification_sent_at?: string | null
           telegram_sent_at?: string | null
           telegram_message_id?: string | null
+          cloid?: string | null
           failure_reason?: string | null
           created_at?: string
           updated_at?: string
@@ -1026,7 +1029,8 @@ export type Database = {
           exchange: 'hyperliquid'
           network: 'testnet' | 'mainnet'
           api_wallet_address: string
-          encrypted_private_key: string
+          master_account_address: string | null
+          encrypted_private_key: string | null
           vault_secret_id: string | null
           enabled: boolean
           created_at: string
@@ -1038,7 +1042,8 @@ export type Database = {
           exchange: 'hyperliquid'
           network?: 'testnet' | 'mainnet'
           api_wallet_address: string
-          encrypted_private_key: string
+          master_account_address?: string | null
+          encrypted_private_key?: string | null
           vault_secret_id?: string | null
           enabled?: boolean
           created_at?: string
@@ -1050,7 +1055,8 @@ export type Database = {
           exchange?: 'hyperliquid'
           network?: 'testnet' | 'mainnet'
           api_wallet_address?: string
-          encrypted_private_key?: string
+          master_account_address?: string | null
+          encrypted_private_key?: string | null
           vault_secret_id?: string | null
           enabled?: boolean
           created_at?: string

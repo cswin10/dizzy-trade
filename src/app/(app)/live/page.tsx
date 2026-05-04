@@ -66,8 +66,13 @@ export default async function LivePage() {
   // Mock-only debug surface: drain the audit log so the operator
   // can see the calls the pipeline made on this render. Pulled
   // here rather than in the client component because the singleton
-  // is server-side.
-  const mockClient = getMockClientIfActive()
+  // is server-side. Returns null when a real Hyperliquid client
+  // is active for this tenant (i.e. credentials are configured),
+  // in which case the debug pane hides itself.
+  const tenantId = (
+    await service.from('tenant_members').select('tenant_id').eq('user_id', user.id).limit(1).single()
+  ).data?.tenant_id as string | undefined
+  const mockClient = tenantId ? await getMockClientIfActive(tenantId) : null
   const auditEvents = mockClient ? mockClient.drainAuditLog() : []
 
   return (

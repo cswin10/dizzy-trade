@@ -309,8 +309,9 @@ export async function placeEntryOrder(
   signal: LiveSignalRow,
   expiresAt: Date,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const cloid = clientOrderIdForSignal(signal.id, 'entry')
   const result = await client.placeLimitOrder({
-    client_order_id: clientOrderIdForSignal(signal.id, 'entry'),
+    client_order_id: cloid,
     pair: signal.pair,
     side: signal.direction,
     size_coin: Number(signal.intended_size_coin),
@@ -323,6 +324,7 @@ export async function placeEntryOrder(
       .update({
         status: 'failed',
         failure_reason: result.reason,
+        cloid,
       })
       .eq('id', signal.id)
     return { ok: false, reason: result.reason }
@@ -333,6 +335,7 @@ export async function placeEntryOrder(
       status: 'order_placed',
       exchange_order_id: result.order_id,
       expires_at: expiresAt.toISOString(),
+      cloid,
     })
     .eq('id', signal.id)
   return { ok: true }
