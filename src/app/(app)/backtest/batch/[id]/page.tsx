@@ -1,10 +1,12 @@
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 
+import { computeBatchAnalyticsAction } from '@/app/actions/backtest-analytics'
 import {
   getBatchBacktestAction,
   getBatchEquityCurvesAction,
 } from '@/app/actions/batch-backtest'
+import { BatchAnalyticsSections } from '@/components/shared/BatchAnalyticsSections'
 import { BatchEquityCurveOverlay } from '@/components/shared/BatchEquityCurveOverlay'
 import { BatchLeaderboard } from '@/components/shared/BatchLeaderboard'
 import { PageContainer } from '@/components/shared/PageContainer'
@@ -45,10 +47,17 @@ export default async function BatchBacktestDetailPage({
   } = await supabase.auth.getUser()
   if (!user) redirect('/sign-in')
 
-  const [detail, curves] = await Promise.all([
+  const analyticsStart = Date.now()
+  const [detail, curves, analyticsRes] = await Promise.all([
     getBatchBacktestAction(params.id),
     getBatchEquityCurvesAction(params.id),
+    computeBatchAnalyticsAction(params.id),
   ])
+  const analyticsMs = Date.now() - analyticsStart
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`[batch detail] analytics computed in ${analyticsMs}ms`)
+  }
+  const analytics = analyticsRes.ok ? analyticsRes.data : null
   if (!detail.ok) notFound()
   const { batch, runs } = detail.data
   const config = batch.config as {
@@ -121,8 +130,25 @@ export default async function BatchBacktestDetailPage({
         <h2 className="mb-4 text-[11px] font-medium uppercase tracking-wider text-white/55">
           Equity curves
         </h2>
-        <BatchEquityCurveOverlay series={curves.ok ? curves.series : []} />
+        <BatchEquityCurveOverlay
+          series={curves.ok ? curves.series : []}
+          combined={
+            analytics?.combined && analytics.combined.equity_curve.length >= 2
+              ? {
+                  run_id: '__combined__',
+                  name: `Combined (top ${analytics.combined.member_names.length})`,
+                  points: analytics.combined.equity_curve,
+                }
+              : undefined
+          }
+        />
       </section>
+
+      {analytics ? (
+        <div className="mt-6 flex flex-col gap-6">
+          <BatchAnalyticsSections analytics={analytics} />
+        </div>
+      ) : null}
     </PageContainer>
   )
 }

@@ -37,6 +37,10 @@ export type BatchEquitySeries = {
 
 export type BatchEquityCurveOverlayProps = {
   series: BatchEquitySeries[]
+  // Optional combined-portfolio overlay rendered as a thicker
+  // white stroke on top of the per-strategy lines. When omitted
+  // the chart behaves exactly as it did before this prop landed.
+  combined?: BatchEquitySeries
 }
 
 function formatGbp(value: number): string {
@@ -55,9 +59,21 @@ function formatDateTick(t: number): string {
 
 export function BatchEquityCurveOverlay({
   series,
+  combined,
 }: BatchEquityCurveOverlayProps) {
   const [visibility, setVisibility] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(series.map((s) => [s.run_id, true])),
+  )
+  const [combinedVisible, setCombinedVisible] = useState(true)
+
+  // Treat the combined overlay as an additional virtual series so
+  // the merge / forward-fill below stays single-codepath. The
+  // combined line uses a distinct dataKey ('__combined__') and
+  // never collides with a real run_id (uuid).
+  const allSeries = useMemo(
+    () =>
+      combined ? [...series, { ...combined, run_id: '__combined__' }] : series,
+    [series, combined],
   )
 
   // The chart needs a single data array: combine every series'
@@ -67,7 +83,7 @@ export function BatchEquityCurveOverlay({
   // behaviour.
   const merged = useMemo(() => {
     const buckets = new Map<number, Record<string, number | null>>()
-    for (const s of series) {
+    for (const s of allSeries) {
       for (const p of s.points) {
         const slot = buckets.get(p.t) ?? { t: p.t }
         slot[s.run_id] = p.pnl
@@ -83,7 +99,7 @@ export function BatchEquityCurveOverlay({
         // disappearing.
         return out
       })
-  }, [series])
+  }, [allSeries])
 
   // Forward-fill in a separate pass so the merge step above keeps
   // its readability.
@@ -91,7 +107,7 @@ export function BatchEquityCurveOverlay({
     const lastValue = new Map<string, number | null>()
     return merged.map((row) => {
       const out: Record<string, number | null> = { t: row.t as number }
-      for (const s of series) {
+      for (const s of allSeries) {
         const cell = row[s.run_id]
         if (cell != null) {
           lastValue.set(s.run_id, cell)
@@ -100,7 +116,7 @@ export function BatchEquityCurveOverlay({
       }
       return out
     })
-  }, [merged, series])
+  }, [merged, allSeries])
 
   if (series.length === 0 || filled.length === 0) {
     return (
@@ -145,6 +161,12 @@ export function BatchEquityCurveOverlay({
                 new Date(label as number).toLocaleString('en-GB')
               }
               formatter={(value: number | string, key: string) => {
+                if (key === '__combined__') {
+                  return [
+                    typeof value === 'number' ? formatGbp(value) : value,
+                    combined?.name ?? 'Combined',
+                  ]
+                }
                 const s = series.find((x) => x.run_id === key)
                 return [
                   typeof value === 'number' ? formatGbp(value) : value,
@@ -166,10 +188,38 @@ export function BatchEquityCurveOverlay({
                 />
               ) : null,
             )}
+            {combined && combinedVisible ? (
+              <Line
+                key="__combined__"
+                type="monotone"
+                dataKey="__combined__"
+                stroke="#FFFFFF"
+                strokeWidth={2.6}
+                dot={false}
+                isAnimationActive={false}
+                connectNulls
+              />
+            ) : null}
           </LineChart>
         </ResponsiveContainer>
       </div>
       <ul className="flex flex-wrap gap-2">
+        {combined ? (
+          <li key="__combined__">
+            <button
+              type="button"
+              onClick={() => setCombinedVisible((v) => !v)}
+              className="inline-flex items-center gap-2 rounded-md border border-white/20 px-2 py-1 text-xs font-semibold text-white transition-colors hover:border-white/40"
+              style={{ opacity: combinedVisible ? 1 : 0.35 }}
+            >
+              <span
+                className="h-2 w-3 rounded-sm"
+                style={{ background: '#FFFFFF' }}
+              />
+              {combined.name}
+            </button>
+          </li>
+        ) : null}
         {series.map((s, i) => {
           const visible = visibility[s.run_id]
           return (
