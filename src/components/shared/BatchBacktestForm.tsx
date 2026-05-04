@@ -75,8 +75,17 @@ export function BatchBacktestForm({
   const [dateStart, setDateStart] = useState(ninetyDaysAgoIso())
   const [dateEnd, setDateEnd] = useState(todayIso())
   const [startingCapital, setStartingCapital] = useState(1000)
-  const [feeBps, setFeeBps] = useState(4.5) // taker fee % default
-  const [makerFee, setMakerFee] = useState(1.5)
+  // Risk per trade in GBP. Drives sizing for legacy framework
+  // strategies. Composable strategies use their own sizing rule
+  // (e.g. fixed_gbp_risk.amount); for those this field is shown
+  // for clarity but the engine ignores it.
+  const [riskAmountGbp, setRiskAmountGbp] = useState(30)
+  // Fee fields are percent of notional — same units as the engine's
+  // computePnlUsd formula and the single-backtest form. Defaults
+  // mirror Hyperliquid's fee tiers (1.5 bps maker / 4.5 bps taker)
+  // expressed as percent.
+  const [makerFeePct, setMakerFeePct] = useState(0.015)
+  const [takerFeePct, setTakerFeePct] = useState(0.045)
   const [slippagePct, setSlippagePct] = useState(0.05)
   const [useNative, setUseNative] = useState(false)
 
@@ -154,8 +163,9 @@ export function BatchBacktestForm({
           date_range_start: new Date(dateStart).toISOString(),
           date_range_end: new Date(dateEnd).toISOString(),
           starting_capital_gbp: startingCapital,
-          maker_fee_pct: makerFee,
-          taker_fee_pct: feeBps,
+          risk_amount_gbp: riskAmountGbp,
+          maker_fee_pct: makerFeePct,
+          taker_fee_pct: takerFeePct,
           slippage_pct: slippagePct,
           assume_taker: true,
           use_strategy_native_pairs: useNative,
@@ -295,6 +305,13 @@ export function BatchBacktestForm({
             onChange={(event) => setStartingCapital(Number(event.target.value))}
           />
           <Input
+            label="Risk per trade (£) — legacy strategies only"
+            type="number"
+            step="0.01"
+            value={riskAmountGbp}
+            onChange={(event) => setRiskAmountGbp(Number(event.target.value))}
+          />
+          <Input
             label="Start date"
             type="date"
             value={dateStart}
@@ -307,27 +324,34 @@ export function BatchBacktestForm({
             onChange={(event) => setDateEnd(event.target.value)}
           />
           <Input
-            label="Maker fee %"
+            label="Maker fee (% of notional)"
             type="number"
             step="0.001"
-            value={makerFee}
-            onChange={(event) => setMakerFee(Number(event.target.value))}
+            value={makerFeePct}
+            onChange={(event) => setMakerFeePct(Number(event.target.value))}
           />
           <Input
-            label="Taker fee %"
+            label="Taker fee (% of notional)"
             type="number"
             step="0.001"
-            value={feeBps}
-            onChange={(event) => setFeeBps(Number(event.target.value))}
+            value={takerFeePct}
+            onChange={(event) => setTakerFeePct(Number(event.target.value))}
           />
           <Input
-            label="Slippage %"
+            label="Slippage (% of price)"
             type="number"
             step="0.001"
             value={slippagePct}
             onChange={(event) => setSlippagePct(Number(event.target.value))}
           />
         </div>
+        <p className="mt-3 text-[11px] leading-snug text-white/45">
+          Composable strategies use their own sizing rule (e.g.{' '}
+          <code className="text-white/60">fixed_gbp_risk.amount</code>); the
+          risk-per-trade field above only applies to legacy framework
+          strategies. Fees and slippage are percent of notional / price for
+          every strategy.
+        </p>
         {!useNative ? (
           <div className="mt-3">
             <span className="mb-1 block text-xs text-white/45">Pairs</span>
