@@ -54,7 +54,7 @@ export async function loadActiveStrategy(
       .select(
         'id, name, framework_id, timeframe, pair_symbols, risk_amount_gbp, min_rr, max_concurrent_positions, max_daily_loss_gbp, max_consecutive_losers',
       )
-      .eq('is_active', true)
+      .eq('deployment_status', 'live')
       .limit(1),
     supabase
       .from('strategy_definitions')
@@ -62,7 +62,7 @@ export async function loadActiveStrategy(
         'id, name, definition, pairs, timeframe, max_concurrent_positions, max_daily_loss_gbp, max_consecutive_losers',
       )
       .eq('tenant_id', tenantId)
-      .eq('is_active', true)
+      .eq('deployment_status', 'live')
       .eq('is_archived', false)
       .limit(1),
   ])

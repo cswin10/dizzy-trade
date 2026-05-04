@@ -30,7 +30,13 @@ export const strategyInputSchema = z.object({
   max_concurrent_positions: z.coerce.number().int().min(1).max(50).default(3),
   max_daily_loss_gbp: z.coerce.number().positive().max(1_000_000).nullable(),
   max_consecutive_losers: z.coerce.number().int().min(1).max(100).nullable(),
-  is_active: z.boolean().default(false),
+  // Lifecycle flag for the legacy strategies table. Mirrors the
+  // four-state deployment_status enum on the strategy_definitions
+  // table introduced in 0026; defaults to 'draft' so newly-created
+  // rows do not race with the live scanner.
+  deployment_status: z
+    .enum(['draft', 'live', 'paused', 'archived'])
+    .default('draft'),
 })
 
 export type StrategyInput = z.infer<typeof strategyInputSchema>

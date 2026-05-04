@@ -39,7 +39,7 @@ export default async function NewBacktestPage({
         .select(
           'framework_id, timeframe, pair_symbols, risk_amount_gbp, min_rr, max_concurrent_positions',
         )
-        .eq('is_active', true)
+        .eq('deployment_status', 'live')
         .limit(1),
       supabase
         .from('strategy_definitions')

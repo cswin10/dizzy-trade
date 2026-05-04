@@ -99,7 +99,7 @@ type StrategyRow = {
   max_concurrent_positions: number
   max_daily_loss_gbp: number | null
   max_consecutive_losers: number | null
-  is_active: boolean
+  deployment_status: 'draft' | 'live' | 'paused' | 'archived'
 }
 
 type RulesState = {
@@ -152,7 +152,7 @@ async function loadUniverse(): Promise<UniverseRow[]> {
   const { data, error } = await client
     .from('universe')
     .select('symbol, coingecko_id, is_watchlist')
-    .eq('is_active', true)
+    .eq('deployment_status', 'live')
   if (error) throw new Error(`universe load failed: ${error.message}`)
   return (data ?? []) as UniverseRow[]
 }
@@ -162,9 +162,9 @@ async function loadActiveStrategies(): Promise<StrategyRow[]> {
   const { data, error } = await client
     .from('strategies')
     .select(
-      'id, name, framework_id, timeframe, pair_symbols, risk_amount_gbp, min_rr, max_concurrent_positions, max_daily_loss_gbp, max_consecutive_losers, is_active',
+      'id, name, framework_id, timeframe, pair_symbols, risk_amount_gbp, min_rr, max_concurrent_positions, max_daily_loss_gbp, max_consecutive_losers, deployment_status',
     )
-    .eq('is_active', true)
+    .eq('deployment_status', 'live')
   if (error) {
     throw new Error(`strategies load failed: ${error.message}`)
   }

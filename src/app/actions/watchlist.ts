@@ -166,7 +166,7 @@ async function loadActiveStrategy(): Promise<{
   const { data, error } = await service
     .from('strategies')
     .select('id, framework_id')
-    .eq('is_active', true)
+    .eq('deployment_status', 'live')
     .limit(1)
   if (error || !data || data.length === 0) return null
   const row = data[0]!

@@ -100,7 +100,7 @@ function draftToInput(draft: FormDraft, isActive: boolean): StrategyInput {
     max_concurrent_positions: draft.max_concurrent_positions,
     max_daily_loss_gbp: draft.max_daily_loss_gbp,
     max_consecutive_losers: draft.max_consecutive_losers,
-    is_active: isActive,
+    deployment_status: isActive ? 'live' : 'draft',
   }
 }
 

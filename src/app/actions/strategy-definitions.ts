@@ -241,14 +241,14 @@ export async function activateStrategyDefinitionAction(
   // has no tenant_id (single-trader v1) so this scopes globally.
   const { error: legacyError } = await service
     .from('strategies')
-    .update({ is_active: false, updated_at: nowIso })
-    .eq('is_active', true)
+    .update({ deployment_status: 'paused', updated_at: nowIso })
+    .eq('deployment_status', 'live')
   if (legacyError) return { ok: false, message: legacyError.message }
 
   // 2. Deactivate every other composable strategy in this tenant.
   const { error: compError } = await service
     .from('strategy_definitions')
-    .update({ is_active: false, updated_at: nowIso })
+    .update({ deployment_status: 'paused', updated_at: nowIso })
     .eq('tenant_id', ctx.tenantId)
     .neq('id', id)
   if (compError) return { ok: false, message: compError.message }
@@ -256,7 +256,7 @@ export async function activateStrategyDefinitionAction(
   // 3. Activate the target.
   const { data, error } = await service
     .from('strategy_definitions')
-    .update({ is_active: true, updated_at: nowIso })
+    .update({ deployment_status: 'live', updated_at: nowIso })
     .eq('id', id)
     .eq('tenant_id', ctx.tenantId)
     .select('*')
@@ -278,7 +278,7 @@ export async function deactivateStrategyDefinitionAction(
   const service = createServiceClient()
   const { data, error } = await service
     .from('strategy_definitions')
-    .update({ is_active: false, updated_at: new Date().toISOString() })
+    .update({ deployment_status: 'paused', updated_at: new Date().toISOString() })
     .eq('id', id)
     .eq('tenant_id', ctx.tenantId)
     .select('*')
@@ -388,7 +388,12 @@ export type StrategyLibraryRow = {
   id: string
   name: string
   description: string | null
+  // Mirrors the deployment_status column. Kept as a derived
+  // boolean for callers that only care whether the row is live;
+  // deployment_status itself is also surfaced for callers that
+  // need to differentiate draft / paused / archived.
   is_active: boolean
+  deployment_status: 'draft' | 'live' | 'paused' | 'archived'
   is_archived: boolean
   pairs: string[]
   timeframe: string
@@ -422,7 +427,7 @@ export async function listAllStrategiesAction(): Promise<StrategyLibraryListResu
     service
       .from('strategies')
       .select(
-        'id, name, framework_id, timeframe, pair_symbols, is_active, created_at, updated_at',
+        'id, name, framework_id, timeframe, pair_symbols, deployment_status, created_at, updated_at',
       )
       .order('updated_at', { ascending: false }),
   ])
@@ -440,7 +445,8 @@ export async function listAllStrategiesAction(): Promise<StrategyLibraryListResu
       id: row.id,
       name: row.name,
       description: row.description,
-      is_active: row.is_active,
+      is_active: row.deployment_status === 'live',
+      deployment_status: row.deployment_status,
       is_archived: row.is_archived,
       pairs: row.pairs ?? [],
       timeframe: row.timeframe,
@@ -455,7 +461,8 @@ export async function listAllStrategiesAction(): Promise<StrategyLibraryListResu
     id: row.id,
     name: row.name,
     description: null,
-    is_active: row.is_active,
+    is_active: row.deployment_status === 'live',
+    deployment_status: row.deployment_status,
     is_archived: false,
     pairs: row.pair_symbols ?? [],
     timeframe: row.timeframe,

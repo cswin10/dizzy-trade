@@ -123,7 +123,7 @@ export default async function SettingsPage() {
     supabase
       .from('strategies')
       .select(
-        'id, name, framework_id, timeframe, pair_symbols, risk_amount_gbp, min_rr, max_concurrent_positions, max_daily_loss_gbp, max_consecutive_losers, is_active',
+        'id, name, framework_id, timeframe, pair_symbols, risk_amount_gbp, min_rr, max_concurrent_positions, max_daily_loss_gbp, max_consecutive_losers, deployment_status',
       )
       .order('created_at', { ascending: true }),
     supabase.from('user_hyperliquid_config').select('main_address').limit(1),
@@ -169,7 +169,7 @@ export default async function SettingsPage() {
       row.max_consecutive_losers == null
         ? null
         : Number(row.max_consecutive_losers),
-    is_active: Boolean(row.is_active),
+    is_active: row.deployment_status === 'live',
   }))
 
   const hyperliquidAddress =

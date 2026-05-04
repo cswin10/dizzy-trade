@@ -41,7 +41,7 @@ async function loadRulesContext(
         .select(
           'risk_amount_gbp, min_rr, max_concurrent_positions, max_daily_loss_gbp, max_consecutive_losers',
         )
-        .eq('is_active', true)
+        .eq('deployment_status', 'live')
         .limit(1),
       service
         .from('trades')
