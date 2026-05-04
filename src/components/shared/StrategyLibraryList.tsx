@@ -53,12 +53,16 @@ export function StrategyLibraryList({ rows }: StrategyLibraryListProps) {
   const [pendingDelete, setPendingDelete] = useState<StrategyLibraryRow | null>(
     null,
   )
-  // Compare mode renders a checkbox per row and a sticky action
-  // bar at the bottom of the viewport when at least two rows are
-  // ticked. The action bar hands the selection to /backtest/batch/new
-  // via query params.
+  // Select mode renders a checkbox per row and a sticky action
+  // bar at the bottom of the viewport. With one or more rows
+  // ticked the bar offers bulk Archive / Delete (composable only,
+  // matching the per-row controls); with two or more it also
+  // offers Run batch backtest. The /backtest/batch/new link
+  // receives the selection via query params.
   const [compareMode, setCompareMode] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [pendingBulkDelete, setPendingBulkDelete] = useState(false)
+  const [pendingBulkArchive, setPendingBulkArchive] = useState(false)
 
   function toggleRowSelected(row: StrategyLibraryRow) {
     const key = `${row.source}:${row.id}`
@@ -159,6 +163,54 @@ export function StrategyLibraryList({ rows }: StrategyLibraryListProps) {
     })
   }
 
+  function performBulkDelete() {
+    setError(null)
+    const ids = [...selectedComposable]
+    if (ids.length === 0) {
+      setPendingBulkDelete(false)
+      return
+    }
+    startTransition(async () => {
+      const failures: string[] = []
+      for (const id of ids) {
+        const result = await deleteStrategyDefinitionAction(id)
+        if (!result.ok) failures.push(result.message ?? id)
+      }
+      setPendingBulkDelete(false)
+      setSelected(new Set())
+      if (failures.length > 0) {
+        setError(
+          `Deleted ${ids.length - failures.length} of ${ids.length}. ${failures.length} failed: ${failures[0]}`,
+        )
+      }
+      router.refresh()
+    })
+  }
+
+  function performBulkArchive() {
+    setError(null)
+    const ids = [...selectedComposable]
+    if (ids.length === 0) {
+      setPendingBulkArchive(false)
+      return
+    }
+    startTransition(async () => {
+      const failures: string[] = []
+      for (const id of ids) {
+        const result = await archiveStrategyDefinitionAction(id)
+        if (!result.ok) failures.push(result.message ?? id)
+      }
+      setPendingBulkArchive(false)
+      setSelected(new Set())
+      if (failures.length > 0) {
+        setError(
+          `Archived ${ids.length - failures.length} of ${ids.length}. ${failures.length} failed: ${failures[0]}`,
+        )
+      }
+      router.refresh()
+    })
+  }
+
   if (rows.length === 0) {
     return (
       <div className="rounded-lg border border-white/[0.06] bg-surface p-10 text-center">
@@ -212,8 +264,39 @@ export function StrategyLibraryList({ rows }: StrategyLibraryListProps) {
               : 'border-white/10 text-white/55 hover:border-white/20 hover:text-white',
           )}
         >
-          {compareMode ? 'Exit compare mode' : 'Compare strategies'}
+          {compareMode ? 'Exit select mode' : 'Select'}
         </button>
+        {compareMode ? (
+          <button
+            type="button"
+            onClick={() => {
+              // Toggle: if every selectable visible row is already
+              // ticked, clear; otherwise select all of them. Archived
+              // rows stay disabled, mirroring the per-row checkbox.
+              const selectable = filtered.filter((r) => !r.is_archived)
+              const allTicked =
+                selectable.length > 0 &&
+                selectable.every((r) =>
+                  selected.has(`${r.source}:${r.id}`),
+                )
+              if (allTicked) {
+                setSelected(new Set())
+              } else {
+                setSelected(
+                  new Set(selectable.map((r) => `${r.source}:${r.id}`)),
+                )
+              }
+            }}
+            className="rounded-full border border-white/10 px-3 py-1 text-xs text-white/55 transition-colors hover:border-white/20 hover:text-white"
+          >
+            {filtered
+              .filter((r) => !r.is_archived)
+              .every((r) => selected.has(`${r.source}:${r.id}`)) &&
+            filtered.filter((r) => !r.is_archived).length > 0
+              ? 'Clear selection'
+              : 'Select all'}
+          </button>
+        ) : null}
       </div>
 
       {error ? (
@@ -337,6 +420,9 @@ export function StrategyLibraryList({ rows }: StrategyLibraryListProps) {
           selectedComposable={selectedComposable}
           selectedLegacy={selectedLegacy}
           onClear={() => setSelected(new Set())}
+          onBulkArchive={() => setPendingBulkArchive(true)}
+          onBulkDelete={() => setPendingBulkDelete(true)}
+          busy={isPending}
         />
       ) : null}
 
@@ -374,6 +460,35 @@ export function StrategyLibraryList({ rows }: StrategyLibraryListProps) {
         }
         confirmLabel="Delete"
         destructive
+        busy={isPending}
+      />
+
+      <ConfirmDialog
+        open={pendingBulkDelete}
+        onClose={() => setPendingBulkDelete(false)}
+        onConfirm={performBulkDelete}
+        title={`Delete ${selectedComposable.length} ${selectedComposable.length === 1 ? 'strategy' : 'strategies'}?`}
+        message={
+          selectedLegacy.length > 0
+            ? `${selectedComposable.length} composable strategies will be removed permanently. ${selectedLegacy.length} framework strategies in the selection will be left alone (use the legacy editor in Settings to delete those). This cannot be undone.`
+            : 'These strategies will be removed permanently. This cannot be undone.'
+        }
+        confirmLabel={`Delete ${selectedComposable.length}`}
+        destructive
+        busy={isPending}
+      />
+
+      <ConfirmDialog
+        open={pendingBulkArchive}
+        onClose={() => setPendingBulkArchive(false)}
+        onConfirm={performBulkArchive}
+        title={`Archive ${selectedComposable.length} ${selectedComposable.length === 1 ? 'strategy' : 'strategies'}?`}
+        message={
+          selectedLegacy.length > 0
+            ? `${selectedComposable.length} composable strategies will be archived. ${selectedLegacy.length} framework strategies in the selection will be left alone.`
+            : 'These strategies will be archived. You can restore them from the Archived filter.'
+        }
+        confirmLabel={`Archive ${selectedComposable.length}`}
         busy={isPending}
       />
     </>
