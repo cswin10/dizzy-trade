@@ -52,7 +52,12 @@ export type ConnectExchangeInput = {
   api_wallet_private_key: string
   api_wallet_address: string
   master_account_address: string
-  network: 'testnet'
+  network: 'testnet' | 'mainnet'
+  // Mandatory acknowledgement when network === 'mainnet'. The
+  // form gates the submit button on the same checkbox; the
+  // server-side check is the second layer that prevents a
+  // hand-crafted POST from bypassing the consent step.
+  mainnet_acknowledged?: boolean
 }
 
 export type ConnectExchangeResult =
@@ -92,27 +97,33 @@ export async function connectExchangeAction(
         'Master account address must be a 0x-prefixed 20-byte hex string',
     }
   }
-  if (input.network !== 'testnet') {
-    // Belt-and-braces: the form only offers testnet, but reject
-    // anything else here so a future hand-edited POST cannot
-    // route to mainnet.
+  if (input.network !== 'testnet' && input.network !== 'mainnet') {
     return {
       ok: false,
-      message: 'Only testnet is supported in Phase 2a',
+      message: `Network must be 'testnet' or 'mainnet' (got "${input.network}")`,
+    }
+  }
+  if (input.network === 'mainnet' && !input.mainnet_acknowledged) {
+    return {
+      ok: false,
+      message:
+        'Mainnet connections require the "I understand" acknowledgement.',
     }
   }
 
-  // Probe the testnet API before persisting anything: if the
-  // creds are bad we want the operator to see a clear error
-  // rather than discovering it later when /live tries to place
-  // an order.
+  // Probe the chosen network's API before persisting anything: if
+  // the creds are bad we want the operator to see a clear error
+  // rather than discovering it later when /live tries to place an
+  // order. The probe URL is dictated by the input, not a default,
+  // so a mistyped network field cannot land traffic on the wrong
+  // host.
   let probe: HyperliquidClient
   try {
     probe = new HyperliquidClient({
       privateKey: privateKey as `0x${string}`,
       apiWalletAddress: apiWalletAddress as `0x${string}`,
       masterAccountAddress: masterAccountAddress as `0x${string}`,
-      network: 'testnet',
+      network: input.network,
     })
   } catch (error) {
     return {
@@ -128,8 +139,7 @@ export async function connectExchangeAction(
     if (!Number.isFinite(state.balance_usd)) {
       return {
         ok: false,
-        message:
-          'Testnet probe returned an unexpected response. Check your master account address.',
+        message: `${input.network} probe returned an unexpected response. Check your master account address.`,
       }
     }
   } catch (error) {
@@ -137,8 +147,8 @@ export async function connectExchangeAction(
       ok: false,
       message:
         error instanceof Error
-          ? `Testnet probe failed: ${error.message}`
-          : 'Testnet probe failed',
+          ? `${input.network} probe failed: ${error.message}`
+          : `${input.network} probe failed`,
     }
   }
 
@@ -161,7 +171,7 @@ export async function connectExchangeAction(
         tenant_id: ctx.tenantId,
         user_id: ctx.user.id,
         exchange: 'hyperliquid',
-        network: 'testnet',
+        network: input.network,
         api_wallet_address: apiWalletAddress,
         master_account_address: masterAccountAddress,
         encrypted_private_key: null,
@@ -211,12 +221,12 @@ export async function disconnectExchangeAction(): Promise<ConnectExchangeResult>
 export type ExchangeStatus =
   | {
       connected: false
-      reason: 'no_credentials' | 'mainnet_blocked' | 'misconfigured'
+      reason: 'no_credentials' | 'misconfigured'
       detail?: string
     }
   | {
       connected: true
-      network: 'testnet'
+      network: 'testnet' | 'mainnet'
       api_wallet_address: string
       master_account_address: string
       balance_usd: number
@@ -243,21 +253,17 @@ export async function getExchangeStatusAction(): Promise<ExchangeStatus> {
   if (!row) {
     return { connected: false, reason: 'no_credentials' }
   }
-  if (row.network === 'mainnet') {
-    return {
-      connected: false,
-      reason: 'mainnet_blocked',
-      detail:
-        'Mainnet credentials are stored but the factory will not use them in Phase 2a.',
-    }
-  }
-  if (row.network !== 'testnet' || !row.master_account_address) {
+  if (
+    (row.network !== 'testnet' && row.network !== 'mainnet') ||
+    !row.master_account_address
+  ) {
     return {
       connected: false,
       reason: 'misconfigured',
       detail: 'Credentials row is missing required fields.',
     }
   }
+  const network = row.network as 'testnet' | 'mainnet'
   // Probe the testnet account so the page shows a current
   // balance. We instantiate the client through the factory
   // wouldn't help us here (we need the read whether or not the
@@ -276,12 +282,12 @@ export async function getExchangeStatusAction(): Promise<ExchangeStatus> {
       privateKey: unwrapDecrypted(secret) as `0x${string}`,
       apiWalletAddress: row.api_wallet_address as `0x${string}`,
       masterAccountAddress: row.master_account_address as `0x${string}`,
-      network: 'testnet',
+      network,
     })
     const state = await probe.getAccountState()
     return {
       connected: true,
-      network: 'testnet',
+      network,
       api_wallet_address: row.api_wallet_address,
       master_account_address: row.master_account_address,
       balance_usd: state.balance_usd,

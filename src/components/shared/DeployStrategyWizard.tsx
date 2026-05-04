@@ -11,6 +11,7 @@ import { useRouter } from 'next/navigation'
 import { useState, useTransition } from 'react'
 
 import { deployStrategyAction } from '@/app/actions/live-deployments'
+import { SafetyLimitsPanel } from '@/components/shared/SafetyLimitsPanel'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 
@@ -292,10 +293,18 @@ export function DeployStrategyWizard({
       <Section title="Confirmation">
         <p className="text-xs text-white/65">
           Deploying live means this strategy starts producing signals from
-          the next scanner tick onwards. Phase 1 routes orders through a
-          mock client, so no real money moves; Phase 2 will require an
-          exchange-credentials row before the same flow places real orders.
+          the next scanner tick onwards. Whether real orders are placed
+          depends on the exchange connection in Settings; mock, testnet and
+          mainnet all flow through the same pipeline and the same hardcoded
+          safety caps below.
         </p>
+        <div className="mt-3">
+          <SafetyLimitsPanel
+            tone="amber"
+            title="Hardcoded safety caps apply to every deployed strategy"
+            subtitle="Enforced before every order placement, regardless of which network is active."
+          />
+        </div>
         <label className="mt-3 flex items-center gap-2 text-xs text-white/75">
           <input
             type="checkbox"

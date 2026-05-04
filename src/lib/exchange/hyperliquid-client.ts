@@ -1,9 +1,16 @@
 // Real Hyperliquid client. Implements the same ExchangeClient
 // interface the mock satisfies, so the live pipeline does not
-// know which it is talking to. Phase 2a is testnet-only; the
-// constructor explicitly rejects mainnet so a misconfigured row
-// or a future flag flip cannot accidentally route real funds
-// through this code path.
+// know which it is talking to. Phase 2b widens the previous
+// testnet-only constraint to support mainnet too. Mainnet is
+// only reached when:
+//   1. exchange_credentials.network === 'mainnet'
+//   2. the factory's ALLOWED_NETWORKS includes 'mainnet'
+//   3. the user ticked the mainnet-consent checkbox in the
+//      settings form (server action validates this)
+//   4. the hardcoded safety caps in src/lib/live/safety-limits.ts
+//      passed the size and risk for this specific signal.
+// All four must be true. The HttpTransport is built from the
+// credentials row's network; nothing else picks the URL.
 //
 // SDK choice: @nktkas/hyperliquid (active TypeScript SDK with
 // EIP-712 signing already wired up via viem). It exposes
@@ -106,14 +113,23 @@ export class HyperliquidClient implements ExchangeClient {
   private assetIndexCache: Map<string, number> | null = null
 
   constructor(options: HyperliquidClientOptions) {
-    if (options.network !== 'testnet') {
+    if (options.network !== 'testnet' && options.network !== 'mainnet') {
+      // Anything other than the two known networks is rejected
+      // outright. Phase 2c reserved this slot for future expansion
+      // (e.g. a regional endpoint); for now the union is closed.
       throw new Error(
-        `HyperliquidClient: only testnet is supported in Phase 2a (got "${options.network}")`,
+        `HyperliquidClient: unsupported network "${options.network}"`,
       )
     }
     this.network = options.network
     this.masterAccountAddress = options.masterAccountAddress
-    const transport = new hl.HttpTransport({ isTestnet: true })
+    // The transport's isTestnet flag is the single source of truth
+    // for which Hyperliquid host the SDK talks to. It comes from
+    // the credentials row, not from a default, not from an env
+    // var, not from a feature flag.
+    const transport = new hl.HttpTransport({
+      isTestnet: options.network === 'testnet',
+    })
     const wallet = privateKeyToAccount(options.privateKey)
     this.exchange = new hl.ExchangeClient({ transport, wallet })
     this.info = new hl.InfoClient({ transport })

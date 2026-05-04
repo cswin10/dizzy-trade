@@ -28,14 +28,25 @@ import type { ExchangeClient, MockExchangeClient } from './types'
 
 const VAULT_INTEGRATION_KEY = 'hyperliquid_api_wallet'
 
-// Phase 2a: testnet only. Anything else routes to the mock so a
-// misconfigured row cannot send to mainnet by accident.
-const ALLOWED_NETWORKS: ReadonlySet<'testnet'> = new Set(['testnet'])
+// Networks that the factory is allowed to route real orders to.
+// Anything outside this set falls back to the mock client so a
+// future (e.g. regional) endpoint cannot be silently enabled by
+// inserting a row.
+//
+// Phase 2b widens the set to include mainnet. Two layers of
+// gating still apply: (1) the credentials row must carry an
+// explicit network value, and (2) the hardcoded safety caps in
+// src/lib/live/safety-limits.ts run on every order placement
+// before the client is ever called.
+const ALLOWED_NETWORKS = new Set<'testnet' | 'mainnet'>([
+  'testnet',
+  'mainnet',
+])
 
 export type ExchangeClientChoice = {
   client: ExchangeClient
   flavour: 'mock' | 'hyperliquid'
-  network: 'testnet' | null
+  network: 'testnet' | 'mainnet' | null
 }
 
 export async function getExchangeClient(
@@ -56,11 +67,11 @@ export async function getExchangeClient(
   if (error || !row) {
     return mockChoice()
   }
-  if (!ALLOWED_NETWORKS.has(row.network as 'testnet')) {
-    // Mainnet (or any future network) explicitly falls back to
-    // mock. The settings page surfaces the "mainnet not yet
-    // enabled" banner so the operator does not silently land on
-    // the mock during configuration.
+  const network = row.network as 'testnet' | 'mainnet'
+  if (!ALLOWED_NETWORKS.has(network)) {
+    // Defence in depth: an unrecognised network value falls back
+    // to mock rather than constructing a client that might pick
+    // an arbitrary URL.
     return mockChoice()
   }
   if (!row.master_account_address) {
@@ -75,9 +86,9 @@ export async function getExchangeClient(
     privateKey,
     apiWalletAddress: row.api_wallet_address as `0x${string}`,
     masterAccountAddress: row.master_account_address as `0x${string}`,
-    network: 'testnet',
+    network,
   })
-  return { client, flavour: 'hyperliquid', network: 'testnet' }
+  return { client, flavour: 'hyperliquid', network }
 }
 
 function mockChoice(): ExchangeClientChoice {

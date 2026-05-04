@@ -4,9 +4,13 @@ import { redirect } from 'next/navigation'
 import { LiveDashboard } from '@/components/shared/LiveDashboard'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { SafetyLimitsPanel } from '@/components/shared/SafetyLimitsPanel'
 import { StrategyWorkspaceTabs } from '@/components/shared/StrategyWorkspaceTabs'
 import { Button } from '@/components/ui/Button'
-import { getMockClientIfActive } from '@/lib/exchange/factory'
+import {
+  getExchangeClient,
+  getMockClientIfActive,
+} from '@/lib/exchange/factory'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 
@@ -74,12 +78,25 @@ export default async function LivePage() {
   ).data?.tenant_id as string | undefined
   const mockClient = tenantId ? await getMockClientIfActive(tenantId) : null
   const auditEvents = mockClient ? mockClient.drainAuditLog() : []
+  // Resolve the active exchange-client flavour once so the
+  // banner can colour itself appropriately. The factory is the
+  // single source of truth for which network is in use; we do
+  // not consult exchange_credentials directly here because the
+  // factory already enforces ALLOWED_NETWORKS.
+  const choice = tenantId ? await getExchangeClient(tenantId) : null
+  const activeNetwork = choice?.network ?? null
+  const subtitle =
+    activeNetwork === 'mainnet'
+      ? 'Live deployments are routing real orders to Hyperliquid mainnet. Hardcoded safety caps apply.'
+      : activeNetwork === 'testnet'
+        ? 'Live deployments are routing real orders to Hyperliquid testnet.'
+        : 'Strategies running against the exchange. No credentials configured; using the in-memory mock client.'
 
   return (
     <PageContainer>
       <PageHeader
         title="Live deployments"
-        subtitle="Strategies running against the exchange. Phase 1 uses a mock client; no real orders are placed."
+        subtitle={subtitle}
         rightSlot={
           <Link href="/settings/strategies" className="contents">
             <Button variant="ghost" className="w-auto">
@@ -89,6 +106,16 @@ export default async function LivePage() {
         }
       />
       <StrategyWorkspaceTabs active="live" />
+      <div className="mb-6">
+        <SafetyLimitsPanel
+          tone={activeNetwork === 'mainnet' ? 'red' : 'amber'}
+          subtitle={
+            activeNetwork === 'mainnet'
+              ? 'Mainnet routing is active. Every order is checked against these caps before placement.'
+              : 'Same caps apply on testnet and mock; on mainnet they prevent real-money mistakes.'
+          }
+        />
+      </div>
       <LiveDashboard
         stats={stats}
         deployments={(deployments ?? []) as any}

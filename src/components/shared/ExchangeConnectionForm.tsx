@@ -7,6 +7,7 @@ import {
   disconnectExchangeAction,
   type ExchangeStatus,
 } from '@/app/actions/exchange-credentials'
+import { SafetyLimitsPanel } from '@/components/shared/SafetyLimitsPanel'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 
@@ -38,26 +39,30 @@ export function ExchangeConnectionForm({
   const [apiWalletKey, setApiWalletKey] = useState('')
   const [apiWalletAddress, setApiWalletAddress] = useState('')
   const [masterAddress, setMasterAddress] = useState('')
+  const [network, setNetwork] = useState<'testnet' | 'mainnet'>('testnet')
+  const [mainnetAcknowledged, setMainnetAcknowledged] = useState(false)
+
+  const submitDisabled =
+    isPending || (network === 'mainnet' && !mainnetAcknowledged)
 
   function statusBanner() {
     if (status.connected) {
+      const isMainnet = status.network === 'mainnet'
       return (
-        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/[0.05] p-4 text-sm text-emerald-200">
-          <div className="font-semibold">Connected to Hyperliquid testnet</div>
-          <div className="mt-1 text-xs text-white/70">
-            Live deployments will route real orders through this API wallet.
+        <div
+          className={
+            isMainnet
+              ? 'rounded-lg border border-red-500/40 bg-red-500/[0.06] p-4 text-sm text-red-200'
+              : 'rounded-lg border border-emerald-500/30 bg-emerald-500/[0.05] p-4 text-sm text-emerald-200'
+          }
+        >
+          <div className="font-semibold">
+            Connected to Hyperliquid {isMainnet ? 'mainnet' : 'testnet'}
           </div>
-        </div>
-      )
-    }
-    if (status.reason === 'mainnet_blocked') {
-      return (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/[0.05] p-4 text-sm text-red-200">
-          <div className="font-semibold">Mainnet credentials present</div>
           <div className="mt-1 text-xs text-white/70">
-            Phase 2a only allows testnet. The factory ignores this row and
-            falls back to the mock client. Disconnect to remove the row, or
-            wait for Phase 2c.
+            {isMainnet
+              ? 'Live deployments place real orders with real funds. Hardcoded safety caps still apply.'
+              : 'Live deployments will route real orders through this API wallet on testnet.'}
           </div>
         </div>
       )
@@ -68,7 +73,7 @@ export function ExchangeConnectionForm({
           <div className="font-semibold">Credentials misconfigured</div>
           <div className="mt-1 text-xs text-white/70">
             {status.detail ??
-              'Disconnect and reconnect with valid testnet credentials.'}
+              'Disconnect and reconnect with valid credentials.'}
           </div>
         </div>
       )
@@ -80,8 +85,7 @@ export function ExchangeConnectionForm({
         </div>
         <div className="mt-1 text-xs text-white/55">
           Live deployments use an in-memory mock exchange. Connect a
-          Hyperliquid testnet API wallet below to place real orders on
-          testnet.
+          Hyperliquid API wallet below to place real orders.
         </div>
       </div>
     )
@@ -89,98 +93,131 @@ export function ExchangeConnectionForm({
 
   function connectedDetail() {
     if (!status.connected) return null
+    const isMainnet = status.network === 'mainnet'
     return (
-      <section className="mt-4 rounded-lg border border-white/[0.06] bg-surface p-4 sm:p-5">
-        <h2 className="mb-3 text-[11px] font-medium uppercase tracking-wider text-white/55">
-          Connection
-        </h2>
-        <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
-          <div>
-            <dt className="text-[10px] uppercase tracking-wider text-white/45">
-              Network
-            </dt>
-            <dd className="mt-1 inline-flex rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-200">
-              Testnet
-            </dd>
+      <>
+        <section className="mt-4 rounded-lg border border-white/[0.06] bg-surface p-4 sm:p-5">
+          <h2 className="mb-3 text-[11px] font-medium uppercase tracking-wider text-white/55">
+            Connection
+          </h2>
+          <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+            <div>
+              <dt className="text-[10px] uppercase tracking-wider text-white/45">
+                Network
+              </dt>
+              <dd
+                className={
+                  isMainnet
+                    ? 'mt-1 inline-flex rounded-full border border-red-500/50 bg-red-500/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-red-200'
+                    : 'mt-1 inline-flex rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-200'
+                }
+              >
+                {isMainnet ? 'Mainnet' : 'Testnet'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[10px] uppercase tracking-wider text-white/45">
+                Account balance (USD)
+              </dt>
+              <dd className="mt-1 font-mono text-white/90">
+                {formatUsd(status.balance_usd)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[10px] uppercase tracking-wider text-white/45">
+                API wallet
+              </dt>
+              <dd
+                className="mt-1 font-mono text-xs text-white/85"
+                title={status.api_wallet_address}
+              >
+                {shortAddress(status.api_wallet_address)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[10px] uppercase tracking-wider text-white/45">
+                Master account
+              </dt>
+              <dd
+                className="mt-1 font-mono text-xs text-white/85"
+                title={status.master_account_address}
+              >
+                {shortAddress(status.master_account_address)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[10px] uppercase tracking-wider text-white/45">
+                Open positions
+              </dt>
+              <dd className="mt-1 font-mono text-white/85">
+                {status.open_position_count}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[10px] uppercase tracking-wider text-white/45">
+                Open orders
+              </dt>
+              <dd className="mt-1 font-mono text-white/85">
+                {status.open_order_count}
+              </dd>
+            </div>
+          </dl>
+          <div className="mt-4 flex justify-end">
+            <Button
+              type="button"
+              variant="ghost"
+              className="w-auto border border-red-500/40 bg-red-500/10 text-red-200 hover:bg-red-500/20"
+              disabled={isPending}
+              onClick={() =>
+                startTransition(async () => {
+                  setError(null)
+                  const r = await disconnectExchangeAction()
+                  if (!r.ok) setError(r.message)
+                  else
+                    setStatus({ connected: false, reason: 'no_credentials' })
+                })
+              }
+            >
+              Disconnect
+            </Button>
           </div>
-          <div>
-            <dt className="text-[10px] uppercase tracking-wider text-white/45">
-              Account balance (USD)
-            </dt>
-            <dd className="mt-1 font-mono text-white/90">
-              {formatUsd(status.balance_usd)}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-[10px] uppercase tracking-wider text-white/45">
-              API wallet
-            </dt>
-            <dd className="mt-1 font-mono text-xs text-white/85" title={status.api_wallet_address}>
-              {shortAddress(status.api_wallet_address)}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-[10px] uppercase tracking-wider text-white/45">
-              Master account
-            </dt>
-            <dd className="mt-1 font-mono text-xs text-white/85" title={status.master_account_address}>
-              {shortAddress(status.master_account_address)}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-[10px] uppercase tracking-wider text-white/45">
-              Open positions
-            </dt>
-            <dd className="mt-1 font-mono text-white/85">
-              {status.open_position_count}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-[10px] uppercase tracking-wider text-white/45">
-              Open orders
-            </dt>
-            <dd className="mt-1 font-mono text-white/85">
-              {status.open_order_count}
-            </dd>
-          </div>
-        </dl>
-        <div className="mt-4 flex justify-end">
-          <Button
-            type="button"
-            variant="ghost"
-            className="w-auto border border-red-500/40 bg-red-500/10 text-red-200 hover:bg-red-500/20"
-            disabled={isPending}
-            onClick={() =>
-              startTransition(async () => {
-                setError(null)
-                const r = await disconnectExchangeAction()
-                if (!r.ok) setError(r.message)
-                else
-                  setStatus({ connected: false, reason: 'no_credentials' })
-              })
+        </section>
+        <div className="mt-4">
+          <SafetyLimitsPanel
+            tone={isMainnet ? 'red' : 'amber'}
+            subtitle={
+              isMainnet
+                ? 'Hardcoded floor enforced before every order placed on mainnet. Cannot be raised without a redeploy.'
+                : 'Hardcoded floor enforced before every order. Same limits apply on mainnet.'
             }
-          >
-            Disconnect
-          </Button>
+          />
         </div>
-      </section>
+      </>
     )
   }
 
   function connectForm() {
     if (status.connected) return null
+    const showMainnetWarning = network === 'mainnet'
     return (
       <form
         className="mt-4 flex flex-col gap-4 rounded-lg border border-white/[0.06] bg-surface p-4 sm:p-5"
         onSubmit={(e) => {
           e.preventDefault()
           setError(null)
+          if (network === 'mainnet' && !mainnetAcknowledged) {
+            setError(
+              'Tick the acknowledgement checkbox before connecting to mainnet.',
+            )
+            return
+          }
           startTransition(async () => {
             const r = await connectExchangeAction({
               api_wallet_private_key: apiWalletKey,
               api_wallet_address: apiWalletAddress,
               master_account_address: masterAddress,
-              network: 'testnet',
+              network,
+              mainnet_acknowledged: mainnetAcknowledged,
             })
             if (!r.ok) {
               setError(r.message)
@@ -191,7 +228,7 @@ export function ExchangeConnectionForm({
             // with the live probe data.
             setStatus({
               connected: true,
-              network: 'testnet',
+              network,
               api_wallet_address: apiWalletAddress.toLowerCase(),
               master_account_address: masterAddress.toLowerCase(),
               balance_usd: 0,
@@ -199,11 +236,12 @@ export function ExchangeConnectionForm({
               open_order_count: 0,
             })
             setApiWalletKey('')
+            setMainnetAcknowledged(false)
           })
         }}
       >
         <h2 className="text-[11px] font-medium uppercase tracking-wider text-white/55">
-          Connect to Hyperliquid testnet
+          Connect to Hyperliquid
         </h2>
         <Input
           label="API wallet private key (0x + 64 hex)"
@@ -231,33 +269,86 @@ export function ExchangeConnectionForm({
           <div className="mt-1 flex flex-wrap gap-2">
             <button
               type="button"
-              className="rounded-full border border-amber-500/40 bg-amber-500/15 px-3 py-1 text-[11px] font-medium text-amber-200"
-              aria-pressed
+              onClick={() => {
+                setNetwork('testnet')
+                setMainnetAcknowledged(false)
+              }}
+              aria-pressed={network === 'testnet'}
+              className={
+                network === 'testnet'
+                  ? 'rounded-full border border-amber-500/40 bg-amber-500/15 px-3 py-1 text-[11px] font-medium text-amber-200'
+                  : 'rounded-full border border-white/10 px-3 py-1 text-[11px] text-white/55 hover:border-white/20 hover:text-white'
+              }
             >
               Testnet
             </button>
             <button
               type="button"
-              disabled
-              title="Mainnet enables in Phase 2c"
-              className="rounded-full border border-white/10 px-3 py-1 text-[11px] text-white/35"
+              onClick={() => setNetwork('mainnet')}
+              aria-pressed={network === 'mainnet'}
+              className={
+                network === 'mainnet'
+                  ? 'rounded-full border border-red-500/50 bg-red-500/15 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-red-200'
+                  : 'rounded-full border border-white/10 px-3 py-1 text-[11px] text-white/55 hover:border-red-500/40 hover:text-red-300'
+              }
             >
-              Mainnet (Phase 2c)
+              Mainnet
             </button>
           </div>
         </div>
+
+        {showMainnetWarning ? (
+          <>
+            <div className="rounded-lg border border-red-500/40 bg-red-500/[0.06] p-4 text-sm text-red-200">
+              <div className="font-semibold">
+                Mainnet places real orders with real funds.
+              </div>
+              <p className="mt-2 text-xs text-white/80">
+                Hardcoded safety caps are enforced before every order:
+              </p>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-white/75">
+                <li>Max £100 (≈ $130) notional per trade</li>
+                <li>Max £3 risk per trade</li>
+                <li>Max £15 cumulative loss in any rolling 24h window</li>
+                <li>Max 1 concurrent open position tenant-wide</li>
+                <li>
+                  First 5 trades require explicit per-trade confirmation
+                </li>
+              </ul>
+              <p className="mt-2 text-[11px] text-white/60">
+                These are code constants in src/lib/live/safety-limits.ts and
+                cannot be changed without a redeploy.
+              </p>
+            </div>
+            <SafetyLimitsPanel
+              tone="red"
+              subtitle="These caps apply to every order routed through mainnet."
+            />
+            <label className="flex items-start gap-2 text-xs text-white/85">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={mainnetAcknowledged}
+                onChange={(e) => setMainnetAcknowledged(e.target.checked)}
+              />
+              <span>
+                I understand this places real orders with real funds and
+                have read the safety limits above.
+              </span>
+            </label>
+          </>
+        ) : null}
+
         <p className="text-[11px] text-white/55">
-          On submit we probe the testnet API with these credentials before
+          On submit we probe the {network} API with these credentials before
           persisting anything. The private key is encrypted via Supabase
           Vault; only the masked preview is ever sent back to the browser.
         </p>
         <div className="flex justify-end">
-          <Button
-            type="submit"
-            disabled={isPending}
-            className="w-auto"
-          >
-            {isPending ? 'Validating…' : 'Connect to Hyperliquid testnet'}
+          <Button type="submit" disabled={submitDisabled} className="w-auto">
+            {isPending
+              ? 'Validating…'
+              : `Connect to Hyperliquid ${network === 'mainnet' ? 'mainnet' : 'testnet'}`}
           </Button>
         </div>
       </form>

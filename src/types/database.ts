@@ -892,6 +892,7 @@ export type Database = {
             | 'skipped_max_positions'
             | 'skipped_daily_loss'
             | 'skipped_consecutive_losers'
+            | 'skipped_safety_limit'
             | 'failed'
           confirmed_at: string | null
           confirmation_source: 'telegram' | 'app' | 'auto' | null
@@ -944,6 +945,7 @@ export type Database = {
             | 'skipped_max_positions'
             | 'skipped_daily_loss'
             | 'skipped_consecutive_losers'
+            | 'skipped_safety_limit'
             | 'failed'
           confirmed_at?: string | null
           confirmation_source?: 'telegram' | 'app' | 'auto' | null
@@ -996,6 +998,7 @@ export type Database = {
             | 'skipped_max_positions'
             | 'skipped_daily_loss'
             | 'skipped_consecutive_losers'
+            | 'skipped_safety_limit'
             | 'failed'
           confirmed_at?: string | null
           confirmation_source?: 'telegram' | 'app' | 'auto' | null

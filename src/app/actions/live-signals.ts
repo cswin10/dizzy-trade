@@ -97,7 +97,12 @@ export async function fireTestSignalAction(
     return { ok: false, message: 'Could not size order from inputs' }
   }
 
-  const preflight = await preflightCheck(service, deployment, input.pair)
+  const preflight = await preflightCheck(
+    service,
+    deployment,
+    input.pair,
+    intent,
+  )
   if (!preflight.ok) {
     const status = preflightSkipStatus(preflight.reason)
     const { data: row } = await service
