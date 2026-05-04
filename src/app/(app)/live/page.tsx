@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { LiveDashboard } from '@/components/shared/LiveDashboard'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { StrategyWorkspaceTabs } from '@/components/shared/StrategyWorkspaceTabs'
 import { Button } from '@/components/ui/Button'
 import { getMockClientIfActive } from '@/lib/exchange/factory'
 import { createClient } from '@/lib/supabase/server'
@@ -82,6 +83,7 @@ export default async function LivePage() {
           </Link>
         }
       />
+      <StrategyWorkspaceTabs active="live" />
       <LiveDashboard
         stats={stats}
         deployments={(deployments ?? []) as any}
