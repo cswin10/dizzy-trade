@@ -32,10 +32,13 @@ alter table public.strategy_definitions
 update public.strategy_definitions
   set deployment_status = case when is_active then 'live' else 'draft' end;
 
--- Existing partial unique constraint enforces "one active strategy
--- per tenant"; rebuild it against deployment_status.
-drop index if exists strategy_definitions_active_per_tenant_idx;
-create unique index strategy_definitions_live_per_tenant_idx
+-- Existing partial unique constraint (introduced in 0022) was
+-- "one active per tenant"; rebuild it against deployment_status.
+-- Names are taken verbatim from 0022 so DROP IF EXISTS finds them
+-- on a database that already migrated through that version.
+drop index if exists strategy_definitions_one_active_per_tenant;
+drop index if exists strategy_definitions_active_idx;
+create unique index strategy_definitions_one_live_per_tenant
   on public.strategy_definitions (tenant_id)
   where deployment_status = 'live';
 
@@ -49,9 +52,17 @@ alter table public.strategies
 update public.strategies
   set deployment_status = case when is_active then 'live' else 'draft' end;
 
-drop index if exists strategies_active_per_tenant_idx;
-create unique index strategies_live_per_tenant_idx
-  on public.strategies (tenant_id)
+-- Legacy strategies are single-tenant in this codebase (no
+-- tenant_id column) so the previous index was a global "only one
+-- active row at a time" partial unique on is_active itself.
+-- Rebuild it as a global "only one live row" against the new
+-- column. The expression-index syntax (deployment_status) where
+-- deployment_status = 'live' is the partial-unique equivalent on
+-- the new column.
+drop index if exists strategies_one_active;
+drop index if exists strategies_active_idx;
+create unique index strategies_one_live
+  on public.strategies (deployment_status)
   where deployment_status = 'live';
 
 alter table public.strategies drop column if exists is_active;
