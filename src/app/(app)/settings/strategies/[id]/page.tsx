@@ -54,10 +54,18 @@ export default async function StrategyDetailPage({
               </Button>
             </Link>
             <Link
+              href={`/settings/strategies/${row.id}/deploy`}
+              className="contents"
+            >
+              <Button className="w-auto">Deploy live</Button>
+            </Link>
+            <Link
               href={`/settings/strategies/${row.id}/edit`}
               className="contents"
             >
-              <Button className="w-auto">Edit</Button>
+              <Button variant="ghost" className="w-auto">
+                Edit
+              </Button>
             </Link>
             <Link href="/settings/strategies" className="contents">
               <Button variant="ghost" className="w-auto">
@@ -70,7 +78,18 @@ export default async function StrategyDetailPage({
 
       <div className="grid gap-4 lg:grid-cols-2">
         <SummaryPanel title="Configuration">
-          <KV label="Status" value={row.is_active ? 'Active' : 'Inactive'} />
+          <KV
+            label="Status"
+            value={
+              row.deployment_status === 'live'
+                ? 'Live'
+                : row.deployment_status === 'paused'
+                  ? 'Paused'
+                  : row.deployment_status === 'archived'
+                    ? 'Archived'
+                    : 'Draft'
+            }
+          />
           <KV label="Timeframe" value={row.timeframe} />
           <KV label="Pairs" value={(row.pairs ?? []).join(', ') || '—'} />
           <KV

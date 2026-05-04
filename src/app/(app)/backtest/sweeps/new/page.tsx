@@ -29,7 +29,7 @@ export default async function NewSweepPage() {
     supabase
       .from('strategies')
       .select('framework_id, timeframe, pair_symbols')
-      .eq('is_active', true)
+      .eq('deployment_status', 'live')
       .limit(1),
     supabase
       .from('strategy_definitions')

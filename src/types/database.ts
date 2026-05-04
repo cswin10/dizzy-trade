@@ -439,7 +439,7 @@ export type Database = {
           max_concurrent_positions: number
           max_daily_loss_gbp: number | null
           max_consecutive_losers: number | null
-          is_active: boolean
+          deployment_status: 'draft' | 'live' | 'paused' | 'archived'
           created_at: string | null
           updated_at: string | null
         }
@@ -454,7 +454,7 @@ export type Database = {
           max_concurrent_positions?: number
           max_daily_loss_gbp?: number | null
           max_consecutive_losers?: number | null
-          is_active?: boolean
+          deployment_status?: 'draft' | 'live' | 'paused' | 'archived'
           created_at?: string | null
           updated_at?: string | null
         }
@@ -469,7 +469,7 @@ export type Database = {
           max_concurrent_positions?: number
           max_daily_loss_gbp?: number | null
           max_consecutive_losers?: number | null
-          is_active?: boolean
+          deployment_status?: 'draft' | 'live' | 'paused' | 'archived'
           created_at?: string | null
           updated_at?: string | null
         }
@@ -486,7 +486,7 @@ export type Database = {
           is_archived: boolean
           created_at: string | null
           updated_at: string | null
-          is_active: boolean
+          deployment_status: 'draft' | 'live' | 'paused' | 'archived'
           pairs: string[]
           timeframe: string
           max_concurrent_positions: number
@@ -503,7 +503,7 @@ export type Database = {
           is_archived?: boolean
           created_at?: string | null
           updated_at?: string | null
-          is_active?: boolean
+          deployment_status?: 'draft' | 'live' | 'paused' | 'archived'
           pairs?: string[]
           timeframe?: string
           max_concurrent_positions?: number
@@ -520,7 +520,7 @@ export type Database = {
           is_archived?: boolean
           created_at?: string | null
           updated_at?: string | null
-          is_active?: boolean
+          deployment_status?: 'draft' | 'live' | 'paused' | 'archived'
           pairs?: string[]
           timeframe?: string
           max_concurrent_positions?: number
@@ -793,6 +793,267 @@ export type Database = {
           strategy_definition_snapshot?: Record<string, unknown> | null
           batch_run_id?: string | null
           diagnostics?: Record<string, unknown> | null
+        }
+        Relationships: []
+      }
+      strategy_deployments: {
+        Row: {
+          id: string
+          tenant_id: string
+          user_id: string
+          strategy_definition_id: string | null
+          legacy_strategy_id: string | null
+          live_risk_gbp: number
+          live_pairs: string[]
+          live_max_concurrent_positions: number
+          live_max_daily_loss_gbp: number | null
+          live_max_consecutive_losers: number | null
+          live_order_lifetime_candles: number
+          live_auto_execute_enabled: boolean
+          source_backtest_run_id: string | null
+          source_backtest_summary: Record<string, unknown> | null
+          deployed_at: string
+          paused_at: string | null
+          resumed_at: string | null
+          archived_at: string | null
+          status: 'live' | 'paused' | 'archived'
+        }
+        Insert: {
+          id?: string
+          tenant_id: string
+          user_id: string
+          strategy_definition_id?: string | null
+          legacy_strategy_id?: string | null
+          live_risk_gbp: number
+          live_pairs: string[]
+          live_max_concurrent_positions?: number
+          live_max_daily_loss_gbp?: number | null
+          live_max_consecutive_losers?: number | null
+          live_order_lifetime_candles?: number
+          live_auto_execute_enabled?: boolean
+          source_backtest_run_id?: string | null
+          source_backtest_summary?: Record<string, unknown> | null
+          deployed_at?: string
+          paused_at?: string | null
+          resumed_at?: string | null
+          archived_at?: string | null
+          status?: 'live' | 'paused' | 'archived'
+        }
+        Update: {
+          id?: string
+          tenant_id?: string
+          user_id?: string
+          strategy_definition_id?: string | null
+          legacy_strategy_id?: string | null
+          live_risk_gbp?: number
+          live_pairs?: string[]
+          live_max_concurrent_positions?: number
+          live_max_daily_loss_gbp?: number | null
+          live_max_consecutive_losers?: number | null
+          live_order_lifetime_candles?: number
+          live_auto_execute_enabled?: boolean
+          source_backtest_run_id?: string | null
+          source_backtest_summary?: Record<string, unknown> | null
+          deployed_at?: string
+          paused_at?: string | null
+          resumed_at?: string | null
+          archived_at?: string | null
+          status?: 'live' | 'paused' | 'archived'
+        }
+        Relationships: []
+      }
+      live_signals: {
+        Row: {
+          id: string
+          tenant_id: string
+          user_id: string
+          deployment_id: string
+          pair: string
+          direction: 'long' | 'short'
+          signal_at: string
+          signal_close_price: number
+          intended_entry_price: number
+          intended_stop_price: number
+          intended_target_price: number
+          intended_size_coin: number
+          intended_size_usd: number
+          intended_risk_gbp: number
+          intended_rr: number
+          status:
+            | 'pending_confirmation'
+            | 'confirmed'
+            | 'order_placed'
+            | 'filled'
+            | 'expired_unfilled'
+            | 'cancelled'
+            | 'closed_at_stop'
+            | 'closed_at_target'
+            | 'skipped_by_user'
+            | 'skipped_max_positions'
+            | 'skipped_daily_loss'
+            | 'skipped_consecutive_losers'
+            | 'failed'
+          confirmed_at: string | null
+          confirmation_source: 'telegram' | 'app' | 'auto' | null
+          expires_at: string | null
+          exchange_order_id: string | null
+          exchange_stop_order_id: string | null
+          exchange_target_order_id: string | null
+          filled_at: string | null
+          fill_price: number | null
+          closed_at: string | null
+          exit_price: number | null
+          exit_reason: 'stop' | 'target' | 'manual' | 'expired' | null
+          realised_pnl_gbp: number | null
+          realised_r_multiple: number | null
+          journal_trade_id: string | null
+          notification_sent_at: string | null
+          telegram_sent_at: string | null
+          telegram_message_id: string | null
+          failure_reason: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          tenant_id: string
+          user_id: string
+          deployment_id: string
+          pair: string
+          direction: 'long' | 'short'
+          signal_at: string
+          signal_close_price: number
+          intended_entry_price: number
+          intended_stop_price: number
+          intended_target_price: number
+          intended_size_coin: number
+          intended_size_usd: number
+          intended_risk_gbp: number
+          intended_rr: number
+          status?:
+            | 'pending_confirmation'
+            | 'confirmed'
+            | 'order_placed'
+            | 'filled'
+            | 'expired_unfilled'
+            | 'cancelled'
+            | 'closed_at_stop'
+            | 'closed_at_target'
+            | 'skipped_by_user'
+            | 'skipped_max_positions'
+            | 'skipped_daily_loss'
+            | 'skipped_consecutive_losers'
+            | 'failed'
+          confirmed_at?: string | null
+          confirmation_source?: 'telegram' | 'app' | 'auto' | null
+          expires_at?: string | null
+          exchange_order_id?: string | null
+          exchange_stop_order_id?: string | null
+          exchange_target_order_id?: string | null
+          filled_at?: string | null
+          fill_price?: number | null
+          closed_at?: string | null
+          exit_price?: number | null
+          exit_reason?: 'stop' | 'target' | 'manual' | 'expired' | null
+          realised_pnl_gbp?: number | null
+          realised_r_multiple?: number | null
+          journal_trade_id?: string | null
+          notification_sent_at?: string | null
+          telegram_sent_at?: string | null
+          telegram_message_id?: string | null
+          failure_reason?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          tenant_id?: string
+          user_id?: string
+          deployment_id?: string
+          pair?: string
+          direction?: 'long' | 'short'
+          signal_at?: string
+          signal_close_price?: number
+          intended_entry_price?: number
+          intended_stop_price?: number
+          intended_target_price?: number
+          intended_size_coin?: number
+          intended_size_usd?: number
+          intended_risk_gbp?: number
+          intended_rr?: number
+          status?:
+            | 'pending_confirmation'
+            | 'confirmed'
+            | 'order_placed'
+            | 'filled'
+            | 'expired_unfilled'
+            | 'cancelled'
+            | 'closed_at_stop'
+            | 'closed_at_target'
+            | 'skipped_by_user'
+            | 'skipped_max_positions'
+            | 'skipped_daily_loss'
+            | 'skipped_consecutive_losers'
+            | 'failed'
+          confirmed_at?: string | null
+          confirmation_source?: 'telegram' | 'app' | 'auto' | null
+          expires_at?: string | null
+          exchange_order_id?: string | null
+          exchange_stop_order_id?: string | null
+          exchange_target_order_id?: string | null
+          filled_at?: string | null
+          fill_price?: number | null
+          closed_at?: string | null
+          exit_price?: number | null
+          exit_reason?: 'stop' | 'target' | 'manual' | 'expired' | null
+          realised_pnl_gbp?: number | null
+          realised_r_multiple?: number | null
+          journal_trade_id?: string | null
+          notification_sent_at?: string | null
+          telegram_sent_at?: string | null
+          telegram_message_id?: string | null
+          failure_reason?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      exchange_credentials: {
+        Row: {
+          id: string
+          tenant_id: string
+          user_id: string
+          exchange: 'hyperliquid'
+          network: 'testnet' | 'mainnet'
+          api_wallet_address: string
+          encrypted_private_key: string
+          vault_secret_id: string | null
+          enabled: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          tenant_id: string
+          user_id: string
+          exchange: 'hyperliquid'
+          network?: 'testnet' | 'mainnet'
+          api_wallet_address: string
+          encrypted_private_key: string
+          vault_secret_id?: string | null
+          enabled?: boolean
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          tenant_id?: string
+          user_id?: string
+          exchange?: 'hyperliquid'
+          network?: 'testnet' | 'mainnet'
+          api_wallet_address?: string
+          encrypted_private_key?: string
+          vault_secret_id?: string | null
+          enabled?: boolean
+          created_at?: string
         }
         Relationships: []
       }

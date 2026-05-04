@@ -14,6 +14,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Alerts', href: '/alerts' },
   { label: 'Watchlist', href: '/watchlist' },
   { label: 'Strategies', href: '/settings/strategies' },
+  { label: 'Live', href: '/live' },
   { label: 'Backtest', href: '/backtest' },
   { label: 'Analytics', href: '/analytics' },
   { label: 'Settings', href: '/settings' },

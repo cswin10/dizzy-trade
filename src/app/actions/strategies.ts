@@ -41,8 +41,11 @@ async function deactivateOthers(
 ): Promise<{ ok: boolean; message?: string }> {
   const query = service
     .from('strategies')
-    .update({ is_active: false, updated_at: new Date().toISOString() })
-    .eq('is_active', true)
+    .update({
+      deployment_status: 'draft',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('deployment_status', 'live')
   const { error } = exceptId ? await query.neq('id', exceptId) : await query
   if (error) return { ok: false, message: error.message }
   return { ok: true }
@@ -65,7 +68,7 @@ export async function createStrategyAction(
   // toggleStrategyActiveAction.
   const { data, error } = await service
     .from('strategies')
-    .insert({ ...parsed.data, is_active: false })
+    .insert({ ...parsed.data, deployment_status: 'draft' })
     .select('id')
     .single()
   if (error) return { ok: false, message: error.message }
@@ -87,11 +90,11 @@ export async function updateStrategyAction(
   }
 
   const service = createServiceClient()
-  const { is_active, ...patch } = parsed.data
+  const { deployment_status, ...patch } = parsed.data
   // Activation flips are exclusively handled by toggleStrategyActiveAction
   // so we do not allow updateStrategyAction to introduce a second active
-  // strategy by accident. is_active is dropped from the patch.
-  void is_active
+  // strategy by accident. deployment_status is dropped from the patch.
+  void deployment_status
   const { error } = await service
     .from('strategies')
     .update({ ...patch, updated_at: new Date().toISOString() })
@@ -117,7 +120,7 @@ export async function toggleStrategyActiveAction(
   if (!active) {
     const { error } = await service
       .from('strategies')
-      .update({ is_active: false, updated_at: nowIso })
+      .update({ deployment_status: 'paused', updated_at: nowIso })
       .eq('id', id)
     if (error) return { ok: false, message: error.message }
     revalidatePath('/settings')
@@ -132,13 +135,13 @@ export async function toggleStrategyActiveAction(
   // the scanner only ever sees one active source at a time.
   const { error: composableError } = await service
     .from('strategy_definitions')
-    .update({ is_active: false, updated_at: nowIso })
-    .eq('is_active', true)
+    .update({ deployment_status: 'paused', updated_at: nowIso })
+    .eq('deployment_status', 'live')
   if (composableError) return { ok: false, message: composableError.message }
 
   const { error } = await service
     .from('strategies')
-    .update({ is_active: true, updated_at: nowIso })
+    .update({ deployment_status: 'live', updated_at: nowIso })
     .eq('id', id)
   if (error) return { ok: false, message: error.message }
 

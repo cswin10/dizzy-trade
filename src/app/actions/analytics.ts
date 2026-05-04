@@ -138,7 +138,7 @@ async function loadActiveStrategyRisk(
   const { data, error } = await service
     .from('strategies')
     .select('risk_amount_gbp')
-    .eq('is_active', true)
+    .eq('deployment_status', 'live')
     .limit(1)
   if (error || !data || data.length === 0) return null
   void tenantId
