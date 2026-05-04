@@ -425,7 +425,7 @@ export async function getBatchBacktestAction(
     service
       .from('backtest_runs')
       .select(
-        'id, name, status, framework_id, strategy_definition_id, total_trades, wins, losses, win_rate, avg_r, total_pnl_gbp, max_drawdown_gbp, sharpe_ratio, longest_losing_streak, expectancy_per_trade_gbp, diagnostics',
+        'id, name, status, framework_id, strategy_definition_id, total_trades, wins, losses, win_rate, avg_r, total_pnl_gbp, max_drawdown_gbp, sharpe_ratio, longest_losing_streak, expectancy_per_trade_gbp',
       )
       .eq('batch_run_id', id)
       .order('total_pnl_gbp', { ascending: false, nullsFirst: false }),
@@ -437,6 +437,27 @@ export async function getBatchBacktestAction(
     return { ok: false, message: runsRes.error.message }
   }
   const batch = batchRes.data
+  const runRows = runsRes.data ?? []
+
+  // Diagnostics is fetched separately and tolerated as missing so a
+  // pre-0025 database (or any future schema drift) cannot 404 the
+  // batch detail page. The leaderboard renders fine without it; the
+  // ZeroSignalBadge just falls back to "No diagnostics available."
+  const diagnosticsByRunId = new Map<string, unknown>()
+  if (runRows.length > 0) {
+    const diagRes = await service
+      .from('backtest_runs')
+      .select('id, diagnostics')
+      .in(
+        'id',
+        runRows.map((r) => r.id),
+      )
+    if (!diagRes.error && diagRes.data) {
+      for (const row of diagRes.data) {
+        diagnosticsByRunId.set(row.id, row.diagnostics)
+      }
+    }
+  }
   return {
     ok: true,
     data: {
@@ -451,7 +472,7 @@ export async function getBatchBacktestAction(
         completed_at: batch.completed_at,
         error_message: batch.error_message,
       },
-      runs: (runsRes.data ?? []).map((row) => ({
+      runs: runRows.map((row) => ({
         id: row.id,
         name: row.name,
         status: row.status,
@@ -473,7 +494,9 @@ export async function getBatchBacktestAction(
           row.expectancy_per_trade_gbp == null
             ? null
             : Number(row.expectancy_per_trade_gbp),
-        diagnostics_summary: summariseDiagnostics(row.diagnostics),
+        diagnostics_summary: summariseDiagnostics(
+          diagnosticsByRunId.get(row.id),
+        ),
       })),
     },
   }
