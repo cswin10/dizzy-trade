@@ -6,32 +6,51 @@ import { useEffect, useRef, useState } from 'react'
 
 import { twMerge } from 'tailwind-merge'
 
-type NavItem = { label: string; href: string }
+type NavItem = {
+  label: string
+  href: string
+  // Optional list of route prefixes that should also light this
+  // entry. Used for the Strategies workspace, which spans four
+  // flat routes (/settings/strategies, /backtest, /live,
+  // /analytics) but reads as one section in the IA. Anything
+  // starting with one of these prefixes activates the entry.
+  matchPrefixes?: string[]
+}
 
 const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', href: '/dashboard' },
+  {
+    label: 'Strategies',
+    href: '/settings/strategies',
+    matchPrefixes: ['/settings/strategies', '/backtest', '/live', '/analytics'],
+  },
+  { label: 'Signals', href: '/alerts' },
   { label: 'Journal', href: '/journal' },
-  { label: 'Alerts', href: '/alerts' },
   { label: 'Watchlist', href: '/watchlist' },
-  { label: 'Strategies', href: '/settings/strategies' },
-  { label: 'Live', href: '/live' },
-  { label: 'Backtest', href: '/backtest' },
-  { label: 'Analytics', href: '/analytics' },
-  { label: 'Settings', href: '/settings' },
 ]
 
-function isActive(pathname: string | null, href: string): boolean {
+function isActive(pathname: string | null, item: NavItem): boolean {
   if (!pathname) return false
-  if (pathname === href) return true
-  if (!pathname.startsWith(`${href}/`)) return false
+  // Strategies-style workspace match: any route inside one of the
+  // listed prefixes lights the entry. Checked before the simple
+  // exact / prefix match so Backtest detail pages still highlight
+  // the workspace owner.
+  if (item.matchPrefixes) {
+    for (const prefix of item.matchPrefixes) {
+      if (pathname === prefix || pathname.startsWith(`${prefix}/`)) {
+        return true
+      }
+    }
+    return false
+  }
+  if (pathname === item.href) return true
+  if (!pathname.startsWith(`${item.href}/`)) return false
   // Defer to a more-specific nav item if one also matches this path.
-  // /settings/strategies should light Strategies, not Settings, even
-  // though both prefixes apply.
   const moreSpecific = NAV_ITEMS.find(
-    (item) =>
-      item.href !== href &&
-      item.href.startsWith(`${href}/`) &&
-      (pathname === item.href || pathname.startsWith(`${item.href}/`)),
+    (other) =>
+      other.href !== item.href &&
+      other.href.startsWith(`${item.href}/`) &&
+      (pathname === other.href || pathname.startsWith(`${other.href}/`)),
   )
   return !moreSpecific
 }
@@ -101,7 +120,7 @@ export function TopNav({ userEmail }: TopNavProps) {
 
       <ul className="hidden items-center gap-7 lg:flex lg:justify-self-center">
         {NAV_ITEMS.map((item) => {
-          const active = isActive(pathname, item.href)
+          const active = isActive(pathname, item)
           return (
             <li key={item.href} className="relative">
               <Link
@@ -144,8 +163,28 @@ export function TopNav({ userEmail }: TopNavProps) {
           {open ? (
             <div
               role="menu"
-              className="absolute right-0 top-full mt-2 min-w-[180px] rounded-lg border border-white/[0.06] bg-surface bg-panel-lit p-1"
+              className="absolute right-0 top-full mt-2 min-w-[200px] rounded-lg border border-white/[0.06] bg-surface bg-panel-lit p-1"
             >
+              <Link
+                href="/settings"
+                role="menuitem"
+                onClick={() => setOpen(false)}
+                className="block rounded-md px-3 py-2 text-left text-sm text-white/70 transition-colors duration-200 hover:bg-surface-2 hover:text-white"
+              >
+                Settings
+              </Link>
+              <Link
+                href="/settings/exchange"
+                role="menuitem"
+                onClick={() => setOpen(false)}
+                className="block rounded-md px-3 py-2 text-left text-sm text-white/70 transition-colors duration-200 hover:bg-surface-2 hover:text-white"
+              >
+                Exchange connection
+              </Link>
+              <div
+                aria-hidden
+                className="my-1 h-px bg-white/[0.06]"
+              />
               <form method="post" action="/sign-out">
                 <button
                   type="submit"
@@ -174,7 +213,7 @@ export function TopNav({ userEmail }: TopNavProps) {
         <div className="fixed inset-x-0 bottom-0 top-14 z-40 flex flex-col bg-base/95 backdrop-blur-md lg:hidden">
           <ul className="flex flex-col gap-1 px-4 py-4">
             {NAV_ITEMS.map((item) => {
-              const active = isActive(pathname, item.href)
+              const active = isActive(pathname, item)
               return (
                 <li key={item.href}>
                   <Link
@@ -201,6 +240,26 @@ export function TopNav({ userEmail }: TopNavProps) {
           </ul>
           <div className="mt-auto border-t border-white/[0.06] px-4 py-4">
             <p className="mb-2 truncate text-xs text-white/45">{userEmail}</p>
+            <ul className="mb-2 flex flex-col gap-1">
+              <li>
+                <Link
+                  href="/settings"
+                  onClick={() => setMobileOpen(false)}
+                  className="block rounded-md px-3 py-2 text-sm text-white/75 transition-colors duration-150 hover:bg-surface hover:text-white"
+                >
+                  Settings
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/settings/exchange"
+                  onClick={() => setMobileOpen(false)}
+                  className="block rounded-md px-3 py-2 text-sm text-white/75 transition-colors duration-150 hover:bg-surface hover:text-white"
+                >
+                  Exchange connection
+                </Link>
+              </li>
+            </ul>
             <form method="post" action="/sign-out">
               <button
                 type="submit"

@@ -6,6 +6,7 @@ import { PageContainer } from '@/components/shared/PageContainer'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { StrategyLibraryHeader } from '@/components/shared/StrategyLibraryHeader'
 import { StrategyLibraryList } from '@/components/shared/StrategyLibraryList'
+import { StrategyWorkspaceTabs } from '@/components/shared/StrategyWorkspaceTabs'
 import { createClient } from '@/lib/supabase/server'
 
 export const metadata = {
@@ -29,6 +30,7 @@ export default async function StrategiesLibraryPage() {
         subtitle="Composable JSON strategies and legacy frameworks. Activate one to run it on the next scanner tick."
         rightSlot={<StrategyLibraryHeader />}
       />
+      <StrategyWorkspaceTabs active="library" />
       {!result.ok ? (
         <div className="mb-3 rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
           {result.message}

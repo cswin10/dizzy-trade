@@ -8,6 +8,7 @@ import {
 import { BacktestTabs } from '@/components/shared/BacktestTabs'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { StrategyWorkspaceTabs } from '@/components/shared/StrategyWorkspaceTabs'
 import { Button } from '@/components/ui/Button'
 import { createClient } from '@/lib/supabase/server'
 
@@ -62,6 +63,7 @@ export default async function BacktestListPage() {
           </Link>
         }
       />
+      <StrategyWorkspaceTabs active="backtest" />
       <BacktestTabs active="runs" />
       <div className="mt-4">
         <BacktestRunsList runs={runs} />

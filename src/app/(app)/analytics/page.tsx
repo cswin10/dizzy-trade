@@ -14,6 +14,7 @@ import { AnalyticsFiltersBar } from '@/components/shared/AnalyticsFilters'
 import { AnalyticsStatsGrid } from '@/components/shared/AnalyticsStatsGrid'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { StrategyWorkspaceTabs } from '@/components/shared/StrategyWorkspaceTabs'
 import {
   SortableChartGrid,
   type ChartPanel,
@@ -255,6 +256,7 @@ export default async function AnalyticsPage({
             subtitle="Pattern recognition across your trades"
             rightSlot={<EngineLiveIndicator />}
           />
+          <StrategyWorkspaceTabs active="analytics" />
 
           <div className="flex flex-col gap-5">
             <div className="sticky top-14 z-20 -mx-1 px-1 pt-1">
