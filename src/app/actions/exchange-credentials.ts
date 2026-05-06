@@ -21,7 +21,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { deleteSecret, storeSecret } from '@/lib/vault'
 
-const VAULT_INTEGRATION_KEY = 'hyperliquid_api_wallet'
+const VAULT_INTEGRATION_KEY = 'hyperliquid'
 
 async function resolveTenant() {
   const supabase = createClient()
@@ -46,6 +46,63 @@ const HEX_20_BYTES = /^0x[0-9a-fA-F]{40}$/
 function maskPrivateKey(key: string): string {
   if (key.length < 10) return '••••••••'
   return `${key.slice(0, 6)}…${key.slice(-4)}`
+}
+
+// Translates the small set of error shapes Hyperliquid's /info
+// endpoint returns into a user-actionable message. The /info
+// endpoint is read-only and address-keyed (no signature
+// required), so the probe failures we see in practice are:
+//
+//   - "user does not exist" / "User has not deposited" - the
+//     master account address has never been used on the chosen
+//     network. The user usually pasted a mainnet address while
+//     selecting testnet, or vice versa.
+//   - HTTP 4xx with a JSON body the SDK surfaces as "ApiRequestError"
+//   - fetch / network failure - DNS, timeout, Vercel-egress block
+//   - validation error inside the SDK before the request goes
+//     out (only happens with malformed addresses, which we
+//     already regex-validate, so this is mostly belt-and-braces).
+//
+// Falls back to the raw error message so a previously unseen
+// failure mode still surfaces something useful rather than a
+// generic digest.
+function explainProbeFailure(
+  network: 'testnet' | 'mainnet',
+  rawMessage: string,
+): string {
+  const lower = rawMessage.toLowerCase()
+  const host =
+    network === 'mainnet'
+      ? 'api.hyperliquid.xyz'
+      : 'api.hyperliquid-testnet.xyz'
+  if (
+    lower.includes('user does not exist') ||
+    lower.includes('user has not') ||
+    lower.includes('no such user')
+  ) {
+    return `Hyperliquid ${network} probe failed: master account has never been used on ${network}. Check the master account address and confirm it has deposited on ${network} before connecting.`
+  }
+  if (
+    lower.includes('fetch failed') ||
+    lower.includes('network') ||
+    lower.includes('timeout') ||
+    lower.includes('econn') ||
+    lower.includes('enotfound') ||
+    lower.includes('aborted')
+  ) {
+    return `Hyperliquid ${network} probe failed: could not reach ${host}. Try again in a moment, or check that outbound traffic to ${host} is allowed.`
+  }
+  if (
+    lower.includes('signature') ||
+    lower.includes('unauthorized') ||
+    lower.includes('not authorized')
+  ) {
+    return `Hyperliquid ${network} probe failed: API wallet is not authorized for the master account. On Hyperliquid, click "Authorize API Wallet" and sign with your main wallet, then retry.`
+  }
+  if (lower.includes('validation') || lower.includes('invalid address')) {
+    return `Hyperliquid ${network} probe failed: address format rejected by the SDK (${rawMessage.slice(0, 200)}).`
+  }
+  return `Hyperliquid ${network} probe failed: ${rawMessage.slice(0, 280)}`
 }
 
 export type ConnectExchangeInput = {
@@ -135,20 +192,20 @@ export async function connectExchangeAction(
     }
   }
   try {
-    const state = await probe.getAccountState()
-    if (!Number.isFinite(state.balance_usd)) {
-      return {
-        ok: false,
-        message: `${input.network} probe returned an unexpected response. Check your master account address.`,
-      }
-    }
+    // getAccountState now propagates errors. A clean return
+    // means clearinghouseState + openOrders both succeeded
+    // against the chosen network, which is a stronger guarantee
+    // than the old "balance is finite" heuristic.
+    await probe.getAccountState()
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    // Map the small set of error families to user-actionable
+    // messages. Falls back to the raw message so a previously
+    // unseen failure mode still surfaces something useful rather
+    // than a generic digest.
     return {
       ok: false,
-      message:
-        error instanceof Error
-          ? `${input.network} probe failed: ${error.message}`
-          : `${input.network} probe failed`,
+      message: explainProbeFailure(input.network, message),
     }
   }
 
