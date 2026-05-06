@@ -26,7 +26,7 @@ import {
 } from './mock-hyperliquid'
 import type { ExchangeClient, MockExchangeClient } from './types'
 
-const VAULT_INTEGRATION_KEY = 'hyperliquid_api_wallet'
+const VAULT_INTEGRATION_KEY = 'hyperliquid'
 
 // Networks that the factory is allowed to route real orders to.
 // Anything outside this set falls back to the mock client so a

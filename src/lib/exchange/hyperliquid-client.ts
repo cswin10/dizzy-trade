@@ -376,33 +376,31 @@ export class HyperliquidClient implements ExchangeClient {
     }
   }
 
+  // Propagates errors. The connect-form probe and the status
+  // probe both wrap this in their own try/catch and surface the
+  // failure as a user-facing message, so swallowing here would
+  // mask "user not found" / network / unauthorized-wallet errors
+  // as a successful zero-balance probe. Any caller that wants
+  // graceful zero-on-error semantics should wrap the call itself.
   async getAccountState(): Promise<AccountState> {
-    try {
-      const state = await this.info.clearinghouseState({
-        user: this.masterAccountAddress,
-      })
-      const open = await this.info.openOrders({
-        user: this.masterAccountAddress,
-      })
-      return {
-        balance_usd: Number(state.marginSummary.accountValue ?? 0),
-        positions: state.assetPositions
-          .filter((ap) => Number(ap.position.szi) !== 0)
-          .map((ap) => ({
-            pair: ap.position.coin,
-            side: Number(ap.position.szi) > 0 ? 'long' : 'short',
-            size_coin: Math.abs(Number(ap.position.szi)),
-            entry_price: Number(ap.position.entryPx ?? 0),
-            unrealised_pnl_usd: Number(ap.position.unrealizedPnl ?? 0),
-          })),
-        open_order_count: open.length,
-      }
-    } catch (error) {
-      console.error(
-        '[hyperliquid] getAccountState error:',
-        errorMessage(error),
-      )
-      return { balance_usd: 0, positions: [], open_order_count: 0 }
+    const state = await this.info.clearinghouseState({
+      user: this.masterAccountAddress,
+    })
+    const open = await this.info.openOrders({
+      user: this.masterAccountAddress,
+    })
+    return {
+      balance_usd: Number(state.marginSummary.accountValue ?? 0),
+      positions: state.assetPositions
+        .filter((ap) => Number(ap.position.szi) !== 0)
+        .map((ap) => ({
+          pair: ap.position.coin,
+          side: Number(ap.position.szi) > 0 ? 'long' : 'short',
+          size_coin: Math.abs(Number(ap.position.szi)),
+          entry_price: Number(ap.position.entryPx ?? 0),
+          unrealised_pnl_usd: Number(ap.position.unrealizedPnl ?? 0),
+        })),
+      open_order_count: open.length,
     }
   }
 }
