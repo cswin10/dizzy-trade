@@ -97,7 +97,12 @@ export async function fireTestSignalAction(
     return { ok: false, message: 'Could not size order from inputs' }
   }
 
-  const preflight = await preflightCheck(service, deployment, input.pair)
+  const preflight = await preflightCheck(
+    service,
+    deployment,
+    input.pair,
+    intent,
+  )
   if (!preflight.ok) {
     const status = preflightSkipStatus(preflight.reason)
     const { data: row } = await service
@@ -207,7 +212,7 @@ export async function confirmSignalAction(
     return { ok: false, message: 'Signal vanished after confirmation' }
   }
 
-  const { client } = getExchangeClient()
+  const { client } = await getExchangeClient(ctx.tenantId)
   const expiresAt = computeExpiryAt(
     new Date(confirmed.signal_at),
     // Phase 1 deployments only run from composable strategies in
@@ -246,16 +251,21 @@ export async function skipSignalAction(
 
 // --- Monitor tick (manual trigger; cron wires Phase 2) -------------
 
-export async function runMonitorTickAction(): Promise<{
-  ok: true
-  signals_inspected: number
-  fills_recorded: number
-  expirations: number
-  closes_recorded: number
-  errors: string[]
-}> {
+export async function runMonitorTickAction(): Promise<
+  | {
+      ok: true
+      signals_inspected: number
+      fills_recorded: number
+      expirations: number
+      closes_recorded: number
+      errors: string[]
+    }
+  | { ok: false; message: string }
+> {
+  const ctx = await resolveTenant()
+  if (!ctx.ok) return { ok: false, message: ctx.error }
   const service = createServiceClient()
-  const { client } = getExchangeClient()
+  const { client } = await getExchangeClient(ctx.tenantId)
   const result = await runMonitorTick(service, client)
   revalidatePath('/live')
   return { ok: true, ...result }
@@ -269,7 +279,9 @@ export async function pushMockTickAction(input: {
   high: number
   low: number
 }): Promise<{ ok: true } | { ok: false; message: string }> {
-  const mock = getMockClientIfActive()
+  const ctx = await resolveTenant()
+  if (!ctx.ok) return { ok: false, message: ctx.error }
+  const mock = await getMockClientIfActive(ctx.tenantId)
   if (!mock) {
     return { ok: false, message: 'Mock client is not active' }
   }
@@ -284,7 +296,8 @@ export async function pushMockTickAction(input: {
   // a result of this tick so the operator does not have to also
   // press "Run monitor tick".
   const service = createServiceClient()
-  const tickResult = await runMonitorTick(service, getExchangeClient().client)
+  const { client } = await getExchangeClient(ctx.tenantId)
+  const tickResult = await runMonitorTick(service, client)
   revalidatePath('/live')
   return { ok: true, ...({ tickResult } as object) }
 }
@@ -292,7 +305,9 @@ export async function pushMockTickAction(input: {
 export async function forceFillEntryAction(
   signal_id: string,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
-  const mock = getMockClientIfActive()
+  const ctx = await resolveTenant()
+  if (!ctx.ok) return { ok: false, message: ctx.error }
+  const mock = await getMockClientIfActive(ctx.tenantId)
   if (!mock) return { ok: false, message: 'Mock client is not active' }
   const service = createServiceClient()
   const { data: signal } = await service
@@ -307,7 +322,8 @@ export async function forceFillEntryAction(
     signal.exchange_order_id,
     Number(signal.intended_entry_price),
   )
-  await runMonitorTick(service, getExchangeClient().client)
+  const { client } = await getExchangeClient(ctx.tenantId)
+  await runMonitorTick(service, client)
   revalidatePath('/live')
   return { ok: true }
 }
@@ -315,7 +331,9 @@ export async function forceFillEntryAction(
 export async function forceTriggerStopAction(
   signal_id: string,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
-  const mock = getMockClientIfActive()
+  const ctx = await resolveTenant()
+  if (!ctx.ok) return { ok: false, message: ctx.error }
+  const mock = await getMockClientIfActive(ctx.tenantId)
   if (!mock) return { ok: false, message: 'Mock client is not active' }
   const service = createServiceClient()
   const { data: signal } = await service
@@ -330,7 +348,8 @@ export async function forceTriggerStopAction(
     signal.exchange_stop_order_id,
     Number(signal.intended_stop_price),
   )
-  await runMonitorTick(service, getExchangeClient().client)
+  const { client } = await getExchangeClient(ctx.tenantId)
+  await runMonitorTick(service, client)
   revalidatePath('/live')
   return { ok: true }
 }
@@ -338,7 +357,9 @@ export async function forceTriggerStopAction(
 export async function forceTriggerTargetAction(
   signal_id: string,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
-  const mock = getMockClientIfActive()
+  const ctx = await resolveTenant()
+  if (!ctx.ok) return { ok: false, message: ctx.error }
+  const mock = await getMockClientIfActive(ctx.tenantId)
   if (!mock) return { ok: false, message: 'Mock client is not active' }
   const service = createServiceClient()
   const { data: signal } = await service
@@ -353,7 +374,8 @@ export async function forceTriggerTargetAction(
     signal.exchange_target_order_id,
     Number(signal.intended_target_price),
   )
-  await runMonitorTick(service, getExchangeClient().client)
+  const { client } = await getExchangeClient(ctx.tenantId)
+  await runMonitorTick(service, client)
   revalidatePath('/live')
   return { ok: true }
 }

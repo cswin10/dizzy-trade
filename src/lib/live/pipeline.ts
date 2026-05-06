@@ -17,6 +17,7 @@
 // enforced one level up.
 
 import { TIMEFRAME_MS } from '@/lib/backtest/types'
+import { HARDCODED_SAFETY_LIMITS } from '@/lib/live/safety-limits'
 import type { ExchangeClient } from '@/lib/exchange/factory'
 import type { OrderStatus } from '@/lib/exchange/types'
 import type { StrategyDefinition } from '@/lib/strategies/types'
@@ -140,20 +141,31 @@ export type PreflightSkipReason =
   | 'consecutive_losers'
   | 'pair_not_allowed'
   | 'deployment_not_live'
+  | 'safety_limit'
 
 export type PreflightResult =
-  | { ok: true }
+  | { ok: true; requires_manual_confirmation: boolean }
   | { ok: false; reason: PreflightSkipReason; detail: string }
 
 // Reads only the live_signals belonging to this deployment so the
 // guardrails track per-deployment, not per-tenant. A tenant
 // running multiple deployments concurrently can hit max_positions
 // on one without affecting the others.
+//
+// The hardcoded safety caps in src/lib/live/safety-limits.ts are
+// applied tenant-wide BEFORE the per-deployment guardrails so a
+// caller cannot route around them by spinning up a fresh
+// deployment with looser settings.
 export async function preflightCheck(
   service: Service,
   deployment: DeploymentRow,
   pair: string,
+  intent: SignalIntent,
 ): Promise<PreflightResult> {
+  // --- Hardcoded safety caps (run first; cannot be overridden) ---
+  const safety = await checkHardcodedSafetyLimits(service, deployment, intent)
+  if (!safety.ok) return safety
+
   if (deployment.status !== 'live') {
     return {
       ok: false,
@@ -258,7 +270,108 @@ export async function preflightCheck(
       }
     }
   }
-  return { ok: true }
+  // requires_manual_confirmation is forward-looking. Phase 2b
+  // pipeline already mandates manual confirmation for every
+  // signal; the flag is computed here so a future auto-execute
+  // path can read it directly off the live_signals row without
+  // re-counting closed trades.
+  const closedCount = await countClosedTradesForTenant(
+    service,
+    deployment.tenant_id,
+  )
+  const requiresManual =
+    closedCount < HARDCODED_SAFETY_LIMITS.REQUIRE_MANUAL_CONFIRMATION_FIRST_N_TRADES
+  return { ok: true, requires_manual_confirmation: requiresManual }
+}
+
+// Hardcoded floor enforced before any per-deployment / per-pair
+// check. The caller passes the already-sized SignalIntent so we
+// can validate notional and risk in one place; daily-loss and
+// concurrent-position counts span every live deployment for the
+// tenant, not just the one firing the signal.
+async function checkHardcodedSafetyLimits(
+  service: Service,
+  deployment: DeploymentRow,
+  intent: SignalIntent,
+): Promise<PreflightResult> {
+  const c = HARDCODED_SAFETY_LIMITS
+
+  const notionalUsd = intent.intended_size_usd
+  if (notionalUsd > c.MAX_NOTIONAL_USD_PER_TRADE) {
+    return {
+      ok: false,
+      reason: 'safety_limit',
+      detail: `Notional $${notionalUsd.toFixed(2)} exceeds hardcoded cap of $${c.MAX_NOTIONAL_USD_PER_TRADE}`,
+    }
+  }
+  if (intent.intended_risk_gbp > c.MAX_RISK_GBP_PER_TRADE) {
+    return {
+      ok: false,
+      reason: 'safety_limit',
+      detail: `Risk £${intent.intended_risk_gbp.toFixed(2)} exceeds hardcoded cap of £${c.MAX_RISK_GBP_PER_TRADE} per trade`,
+    }
+  }
+
+  // Rolling 24h loss across every live signal for the tenant.
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  const { data: closedRecent, error: lossErr } = await service
+    .from('live_signals')
+    .select('realised_pnl_gbp')
+    .eq('tenant_id', deployment.tenant_id)
+    .gte('closed_at', since)
+  if (lossErr) {
+    return {
+      ok: false,
+      reason: 'safety_limit',
+      detail: `daily-loss query failed: ${lossErr.message}`,
+    }
+  }
+  const realised = (closedRecent ?? [])
+    .map((r: { realised_pnl_gbp: number | null }) =>
+      r.realised_pnl_gbp == null ? 0 : Number(r.realised_pnl_gbp),
+    )
+    .reduce((a: number, b: number) => a + b, 0)
+  if (-realised >= c.MAX_DAILY_LOSS_GBP) {
+    return {
+      ok: false,
+      reason: 'safety_limit',
+      detail: `Daily loss £${(-realised).toFixed(2)} already at hardcoded cap of £${c.MAX_DAILY_LOSS_GBP}`,
+    }
+  }
+
+  // Tenant-wide concurrent position count.
+  const { count: openCount, error: posErr } = await service
+    .from('live_signals')
+    .select('id', { count: 'exact', head: true })
+    .eq('tenant_id', deployment.tenant_id)
+    .in('status', ['order_placed', 'filled'])
+  if (posErr) {
+    return {
+      ok: false,
+      reason: 'safety_limit',
+      detail: `concurrent-position query failed: ${posErr.message}`,
+    }
+  }
+  if ((openCount ?? 0) >= c.MAX_CONCURRENT_POSITIONS_GLOBAL) {
+    return {
+      ok: false,
+      reason: 'safety_limit',
+      detail: `Already at hardcoded cap of ${c.MAX_CONCURRENT_POSITIONS_GLOBAL} concurrent position${c.MAX_CONCURRENT_POSITIONS_GLOBAL === 1 ? '' : 's'} (${openCount} open)`,
+    }
+  }
+  return { ok: true, requires_manual_confirmation: false }
+}
+
+async function countClosedTradesForTenant(
+  service: Service,
+  tenantId: string,
+): Promise<number> {
+  const { count } = await service
+    .from('live_signals')
+    .select('id', { count: 'exact', head: true })
+    .eq('tenant_id', tenantId)
+    .in('status', ['closed_at_stop', 'closed_at_target'])
+  return count ?? 0
 }
 
 // --- Signal recording ---------------------------------------------
@@ -280,6 +393,7 @@ export function preflightSkipStatus(
   | 'skipped_max_positions'
   | 'skipped_daily_loss'
   | 'skipped_consecutive_losers'
+  | 'skipped_safety_limit'
   | 'failed' {
   switch (reason) {
     case 'max_positions':
@@ -288,6 +402,8 @@ export function preflightSkipStatus(
       return 'skipped_daily_loss'
     case 'consecutive_losers':
       return 'skipped_consecutive_losers'
+    case 'safety_limit':
+      return 'skipped_safety_limit'
     default:
       return 'failed'
   }
@@ -309,8 +425,9 @@ export async function placeEntryOrder(
   signal: LiveSignalRow,
   expiresAt: Date,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const cloid = clientOrderIdForSignal(signal.id, 'entry')
   const result = await client.placeLimitOrder({
-    client_order_id: clientOrderIdForSignal(signal.id, 'entry'),
+    client_order_id: cloid,
     pair: signal.pair,
     side: signal.direction,
     size_coin: Number(signal.intended_size_coin),
@@ -323,6 +440,7 @@ export async function placeEntryOrder(
       .update({
         status: 'failed',
         failure_reason: result.reason,
+        cloid,
       })
       .eq('id', signal.id)
     return { ok: false, reason: result.reason }
@@ -333,6 +451,7 @@ export async function placeEntryOrder(
       status: 'order_placed',
       exchange_order_id: result.order_id,
       expires_at: expiresAt.toISOString(),
+      cloid,
     })
     .eq('id', signal.id)
   return { ok: true }
