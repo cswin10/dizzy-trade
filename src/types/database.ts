@@ -893,6 +893,7 @@ export type Database = {
             | 'skipped_daily_loss'
             | 'skipped_consecutive_losers'
             | 'skipped_safety_limit'
+            | 'safety_rejected'
             | 'failed'
           confirmed_at: string | null
           confirmation_source: 'telegram' | 'app' | 'auto' | null
@@ -912,6 +913,9 @@ export type Database = {
           telegram_sent_at: string | null
           telegram_message_id: string | null
           cloid: string | null
+          exchange_stop_cloid: string | null
+          exchange_target_cloid: string | null
+          requires_manual_confirmation: boolean
           failure_reason: string | null
           created_at: string
           updated_at: string
@@ -946,6 +950,7 @@ export type Database = {
             | 'skipped_daily_loss'
             | 'skipped_consecutive_losers'
             | 'skipped_safety_limit'
+            | 'safety_rejected'
             | 'failed'
           confirmed_at?: string | null
           confirmation_source?: 'telegram' | 'app' | 'auto' | null
@@ -965,6 +970,9 @@ export type Database = {
           telegram_sent_at?: string | null
           telegram_message_id?: string | null
           cloid?: string | null
+          exchange_stop_cloid?: string | null
+          exchange_target_cloid?: string | null
+          requires_manual_confirmation?: boolean
           failure_reason?: string | null
           created_at?: string
           updated_at?: string
@@ -999,6 +1007,7 @@ export type Database = {
             | 'skipped_daily_loss'
             | 'skipped_consecutive_losers'
             | 'skipped_safety_limit'
+            | 'safety_rejected'
             | 'failed'
           confirmed_at?: string | null
           confirmation_source?: 'telegram' | 'app' | 'auto' | null
@@ -1018,6 +1027,9 @@ export type Database = {
           telegram_sent_at?: string | null
           telegram_message_id?: string | null
           cloid?: string | null
+          exchange_stop_cloid?: string | null
+          exchange_target_cloid?: string | null
+          requires_manual_confirmation?: boolean
           failure_reason?: string | null
           created_at?: string
           updated_at?: string

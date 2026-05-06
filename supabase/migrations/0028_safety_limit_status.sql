@@ -33,3 +33,5 @@ alter table public.live_signals
       'failed'
     )
   );
+
+notify pgrst, 'reload schema';

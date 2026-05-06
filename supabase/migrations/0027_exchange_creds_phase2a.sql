@@ -36,3 +36,5 @@ alter table public.live_signals
 create index if not exists live_signals_cloid_idx
   on public.live_signals (cloid)
   where cloid is not null;
+
+notify pgrst, 'reload schema';

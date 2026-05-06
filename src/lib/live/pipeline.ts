@@ -531,8 +531,27 @@ export async function runMonitorTick(
   }
   for (const signal of (filled ?? []) as LiveSignalRow[]) {
     out.signals_inspected += 1
-    const stopId = signal.exchange_stop_order_id
-    const tpId = signal.exchange_target_order_id
+    // Stop and target id may be the synthetic 'pending:*' string
+    // we wrote when the placement returned 'waitingForTrigger'.
+    // Resolve to a real numeric oid via cloid before reading
+    // status. Writes the resolved oid back so subsequent ticks
+    // skip the resolution step.
+    const stopId = await maybeResolvePendingId(
+      service,
+      client,
+      signal.id,
+      signal.exchange_stop_order_id,
+      signal.exchange_stop_cloid,
+      'stop',
+    )
+    const tpId = await maybeResolvePendingId(
+      service,
+      client,
+      signal.id,
+      signal.exchange_target_order_id,
+      signal.exchange_target_cloid,
+      'target',
+    )
     let closed = false
     if (stopId) {
       const stopStatus = await client.getOrderStatus(stopId)
@@ -547,6 +566,8 @@ export async function runMonitorTick(
         )
         out.closes_recorded += 1
         closed = true
+      } else if (stopStatus.kind === 'error') {
+        out.errors.push(`stop status: ${stopStatus.message}`)
       }
     }
     if (closed) continue
@@ -562,10 +583,43 @@ export async function runMonitorTick(
           'target',
         )
         out.closes_recorded += 1
+      } else if (tpStatus.kind === 'error') {
+        out.errors.push(`target status: ${tpStatus.message}`)
       }
     }
   }
   return out
+}
+
+// When the persisted exchange_*_order_id starts with 'pending:'
+// (synthetic placeholder for a trigger order that initially
+// returned 'waitingForTrigger'), look it up by cloid in the
+// open-orders feed. If we find a real oid, write it back to the
+// row and return it; if the cloid is no longer in the open list
+// the order may have already triggered+filled or been cancelled,
+// in which case getOrderStatus(cloid) cannot help and we return
+// the placeholder so the caller skips status work for this tick.
+async function maybeResolvePendingId(
+  service: Service,
+  client: ExchangeClient,
+  signalId: string,
+  orderId: string | null,
+  cloid: string | null,
+  kind: 'stop' | 'target',
+): Promise<string | null> {
+  if (!orderId) return null
+  if (!orderId.startsWith('pending:')) return orderId
+  if (!cloid || !client.resolveOidByCloid) return orderId
+  const oid = await client.resolveOidByCloid(cloid)
+  if (oid === null) return orderId
+  const realId = String(oid)
+  const column =
+    kind === 'stop' ? 'exchange_stop_order_id' : 'exchange_target_order_id'
+  await service
+    .from('live_signals')
+    .update({ [column]: realId })
+    .eq('id', signalId)
+  return realId
 }
 
 async function onEntryFilled(
@@ -594,6 +648,10 @@ async function onEntryFilled(
     size_coin: Number(signal.intended_size_coin),
     trigger_price: Number(signal.intended_target_price),
   })
+  // Persist cloids alongside the order ids so the monitor tick
+  // can resolve a real oid later via openOrders.cloid lookup if
+  // the placement initially returned 'waitingForTrigger'
+  // (synthetic 'pending:*' order_id).
   await service
     .from('live_signals')
     .update({
@@ -602,6 +660,8 @@ async function onEntryFilled(
       fill_price: fillPrice,
       exchange_stop_order_id: stopRes.ok ? stopRes.order_id : null,
       exchange_target_order_id: tpRes.ok ? tpRes.order_id : null,
+      exchange_stop_cloid: stopRes.ok ? (stopRes.cloid ?? null) : null,
+      exchange_target_cloid: tpRes.ok ? (tpRes.cloid ?? null) : null,
       failure_reason:
         !stopRes.ok || !tpRes.ok
           ? `stop=${stopRes.ok ? 'ok' : stopRes.reason}, tp=${tpRes.ok ? 'ok' : tpRes.reason}`
