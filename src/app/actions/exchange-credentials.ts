@@ -289,6 +289,19 @@ export type ExchangeStatus =
       balance_usd: number
       open_position_count: number
       open_order_count: number
+      // Hyperliquid account abstraction mode reported by the
+      // userAbstraction info endpoint. Drives which clearinghouse
+      // the balance is read from inside the client; surfaced here
+      // so the connected-state UI can render the mode alongside
+      // the balance and the operator can tell at a glance whether
+      // their account is unified or standard.
+      abstraction_mode:
+        | 'default'
+        | 'disabled'
+        | 'unifiedAccount'
+        | 'portfolioMargin'
+        | 'dexAbstraction'
+        | 'mock'
     }
 
 export async function getExchangeStatusAction(): Promise<ExchangeStatus> {
@@ -350,6 +363,7 @@ export async function getExchangeStatusAction(): Promise<ExchangeStatus> {
       balance_usd: state.balance_usd,
       open_position_count: state.positions.length,
       open_order_count: state.open_order_count,
+      abstraction_mode: state.abstraction_mode,
     }
   } catch (error) {
     return {

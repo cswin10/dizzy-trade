@@ -29,6 +29,34 @@ function shortAddress(addr: string): string {
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`
 }
 
+// Hyperliquid's userAbstraction values are camelCase enum
+// strings; map each to a short display label so the connected-
+// state UI does not just read 'unifiedAccount' verbatim.
+function abstractionModeLabel(
+  mode:
+    | 'default'
+    | 'disabled'
+    | 'unifiedAccount'
+    | 'portfolioMargin'
+    | 'dexAbstraction'
+    | 'mock',
+): string {
+  switch (mode) {
+    case 'default':
+      return 'Standard (default)'
+    case 'disabled':
+      return 'Standard (abstraction disabled)'
+    case 'unifiedAccount':
+      return 'Unified Account'
+    case 'portfolioMargin':
+      return 'Portfolio Margin'
+    case 'dexAbstraction':
+      return 'HIP-3 DEX Abstraction'
+    case 'mock':
+      return 'Mock client'
+  }
+}
+
 export function ExchangeConnectionForm({
   initialStatus,
 }: ExchangeConnectionFormProps) {
@@ -161,6 +189,23 @@ export function ExchangeConnectionForm({
                 {status.open_order_count}
               </dd>
             </div>
+            <div>
+              <dt className="text-[10px] uppercase tracking-wider text-white/45">
+                Account mode
+              </dt>
+              <dd className="mt-1 text-xs text-white/85">
+                {abstractionModeLabel(status.abstraction_mode)}
+                {status.abstraction_mode === 'unifiedAccount' ||
+                status.abstraction_mode === 'portfolioMargin' ? (
+                  <span
+                    className="ml-2 rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] uppercase tracking-wider text-white/55"
+                    title="Balance is read from the spot clearinghouse for this mode."
+                  >
+                    spot balance
+                  </span>
+                ) : null}
+              </dd>
+            </div>
           </dl>
           <div className="mt-4 flex justify-end">
             <Button
@@ -234,6 +279,9 @@ export function ExchangeConnectionForm({
               balance_usd: 0,
               open_position_count: 0,
               open_order_count: 0,
+              // Optimistic placeholder; the next page render
+              // replaces it with the real mode from the probe.
+              abstraction_mode: 'default',
             })
             setApiWalletKey('')
             setMainnetAcknowledged(false)

@@ -259,6 +259,7 @@ export class MockHyperliquidClient implements MockExchangeClient {
       balance_usd: 10_000,
       positions: [],
       open_order_count: openOrders,
+      abstraction_mode: 'mock',
     }
   }
 
