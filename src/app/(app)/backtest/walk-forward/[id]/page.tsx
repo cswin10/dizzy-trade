@@ -64,7 +64,7 @@ export default async function WalkForwardDetailPage({
       <StrategyWorkspaceTabs active="backtest" />
       <WalkForwardDetail
         parent={parent}
-        children={orderedChildren.map((r) => ({
+        childRows={orderedChildren.map((r) => ({
           id: r.id,
           name: r.name,
           status: r.status,

@@ -1,8 +1,10 @@
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 
+import { listStrategyDefinitionVersionsAction } from '@/app/actions/strategy-definitions'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { PageHeader } from '@/components/shared/PageHeader'
+import { StrategyVersionHistory } from '@/components/shared/StrategyVersionHistory'
 import { Button } from '@/components/ui/Button'
 import {
   CONDITION_DESCRIPTOR_BY_TYPE,
@@ -35,13 +37,18 @@ export default async function StrategyDetailPage({
     .single()
   if (error || !row) notFound()
   const definition = row.definition as unknown as StrategyDefinition
+  const currentVersion = row.version_n ?? 1
+  const versionsResult = await listStrategyDefinitionVersionsAction(row.id)
+  const versions = versionsResult.ok ? versionsResult.rows : []
 
   return (
     <PageContainer>
       <PageHeader
         title={row.name}
         subtitle={
-          row.description ?? `${definition.direction} · ${row.timeframe}`
+          row.description
+            ? `${row.description} · v${currentVersion}`
+            : `${definition.direction} · ${row.timeframe} · v${currentVersion}`
         }
         rightSlot={
           <div className="flex flex-wrap items-center gap-2">
@@ -185,9 +192,28 @@ export default async function StrategyDetailPage({
         </ol>
       </SummaryPanel>
 
+      <section className="mt-4 rounded-lg border border-white/[0.06] bg-surface p-4">
+        <h2 className="mb-3 text-[11px] font-medium uppercase tracking-wider text-white/55">
+          Version history
+        </h2>
+        <StrategyVersionHistory
+          versions={versions.map((v) => ({
+            id: v.id,
+            version_n: v.version_n,
+            name: v.name,
+            description: v.description,
+            schema_version: v.schema_version,
+            change_note: v.change_note,
+            created_at: v.created_at,
+            definition: v.definition as unknown as Record<string, unknown>,
+          }))}
+          currentVersion={currentVersion}
+        />
+      </section>
+
       <details className="mt-4 rounded-lg border border-white/[0.06] bg-surface p-4">
         <summary className="cursor-pointer text-[11px] uppercase tracking-wider text-white/55">
-          Raw JSON
+          Raw JSON (current v{currentVersion})
         </summary>
         <pre className="mt-2 overflow-x-auto font-mono text-[11px] text-white/65">
           {JSON.stringify(definition, null, 2)}

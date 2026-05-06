@@ -47,7 +47,7 @@ type ChildRow = {
 
 export type WalkForwardDetailProps = {
   parent: ParentRow
-  children: ChildRow[]
+  childRows: ChildRow[]
 }
 
 function fmtGbp(value: number | null): string {
@@ -84,7 +84,7 @@ function fmtRange(start: string, end: string): string {
 
 export function WalkForwardDetail({
   parent,
-  children: rows,
+  childRows: rows,
 }: WalkForwardDetailProps) {
   const summary = (parent.summary ?? null) as
     | (Partial<WalkForwardSummary> & Record<string, unknown>)

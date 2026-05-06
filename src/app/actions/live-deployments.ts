@@ -84,6 +84,21 @@ export async function deployStrategyAction(
     if (run) summary = run as Record<string, unknown>
   }
 
+  // Pin the strategy version that was current at deploy time. The
+  // /live page renders this alongside the latest version_n so the
+  // operator can spot when an edit has drifted away from what is
+  // actually running.
+  let deployedVersion: number | null = null
+  if (input.strategy_definition_id) {
+    const { data: def } = await service
+      .from('strategy_definitions')
+      .select('version_n')
+      .eq('id', input.strategy_definition_id)
+      .eq('tenant_id', ctx.tenantId)
+      .single()
+    deployedVersion = def?.version_n ?? null
+  }
+
   const { data, error } = await service
     .from('strategy_deployments')
     .insert({
@@ -102,6 +117,7 @@ export async function deployStrategyAction(
       source_backtest_run_id: input.source_backtest_run_id,
       source_backtest_summary: summary,
       status: 'live',
+      deployed_strategy_version: deployedVersion,
     })
     .select('id')
     .single()

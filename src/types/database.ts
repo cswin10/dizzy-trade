@@ -492,6 +492,7 @@ export type Database = {
           max_concurrent_positions: number
           max_daily_loss_gbp: number | null
           max_consecutive_losers: number | null
+          version_n: number
         }
         Insert: {
           id?: string
@@ -509,6 +510,7 @@ export type Database = {
           max_concurrent_positions?: number
           max_daily_loss_gbp?: number | null
           max_consecutive_losers?: number | null
+          version_n?: number
         }
         Update: {
           id?: string
@@ -526,6 +528,49 @@ export type Database = {
           max_concurrent_positions?: number
           max_daily_loss_gbp?: number | null
           max_consecutive_losers?: number | null
+          version_n?: number
+        }
+        Relationships: []
+      }
+      strategy_definition_versions: {
+        Row: {
+          id: string
+          tenant_id: string
+          strategy_definition_id: string
+          version_n: number
+          name: string
+          description: string | null
+          definition: Record<string, unknown>
+          schema_version: number
+          change_note: string | null
+          created_by: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          tenant_id: string
+          strategy_definition_id: string
+          version_n: number
+          name: string
+          description?: string | null
+          definition: Record<string, unknown>
+          schema_version: number
+          change_note?: string | null
+          created_by?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          tenant_id?: string
+          strategy_definition_id?: string
+          version_n?: number
+          name?: string
+          description?: string | null
+          definition?: Record<string, unknown>
+          schema_version?: number
+          change_note?: string | null
+          created_by?: string | null
+          created_at?: string
         }
         Relationships: []
       }
@@ -817,6 +862,7 @@ export type Database = {
           resumed_at: string | null
           archived_at: string | null
           status: 'live' | 'paused' | 'archived'
+          deployed_strategy_version: number | null
         }
         Insert: {
           id?: string
@@ -838,6 +884,7 @@ export type Database = {
           resumed_at?: string | null
           archived_at?: string | null
           status?: 'live' | 'paused' | 'archived'
+          deployed_strategy_version?: number | null
         }
         Update: {
           id?: string
@@ -859,6 +906,7 @@ export type Database = {
           resumed_at?: string | null
           archived_at?: string | null
           status?: 'live' | 'paused' | 'archived'
+          deployed_strategy_version?: number | null
         }
         Relationships: []
       }

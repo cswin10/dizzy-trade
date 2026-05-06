@@ -75,7 +75,7 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000
 // First window starts at total_start; subsequent windows step
 // forward by step_size; the last window's end is clamped to
 // total_end.
-export function computeWalkForwardWindows(
+function computeWalkForwardWindows(
   totalStart: Date,
   totalEnd: Date,
   windowSizeDays: number,
