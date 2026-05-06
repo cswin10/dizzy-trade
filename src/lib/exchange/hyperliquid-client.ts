@@ -25,6 +25,7 @@ import { createHash } from 'node:crypto'
 import { privateKeyToAccount } from 'viem/accounts'
 
 import type {
+  AccountAbstractionMode,
   AccountState,
   CancelAllInput,
   CancelAllResult,
@@ -111,6 +112,12 @@ export class HyperliquidClient implements ExchangeClient {
   // first order; cached for the lifetime of the process. The
   // Phase-1 mock kept a similar map keyed by symbol.
   private assetIndexCache: Map<string, number> | null = null
+  // Account abstraction mode. Hyperliquid's default for new
+  // accounts is 'unifiedAccount', which means the perp
+  // clearinghouseState response shows zero balance even when the
+  // account holds USDC; the funds live on the spot side. Cached
+  // after the first lookup; getAccountState branches on it.
+  private abstractionMode: AccountAbstractionMode | null = null
 
   constructor(options: HyperliquidClientOptions) {
     if (options.network !== 'testnet' && options.network !== 'mainnet') {
@@ -382,25 +389,88 @@ export class HyperliquidClient implements ExchangeClient {
   // mask "user not found" / network / unauthorized-wallet errors
   // as a successful zero-balance probe. Any caller that wants
   // graceful zero-on-error semantics should wrap the call itself.
+  //
+  // Balance source depends on the account abstraction mode:
+  //   default / disabled   - perp clearinghouse marginSummary.accountValue
+  //   unifiedAccount       - spot clearinghouse USDC.total
+  //   portfolioMargin      - spot clearinghouse USDC.total
+  //   dexAbstraction       - falls back to perp clearinghouse
+  // Hyperliquid's default for new accounts is 'unifiedAccount';
+  // the perp endpoint reports zero for those, hence the branch.
+  // Positions still come from clearinghouseState.assetPositions
+  // regardless of mode.
   async getAccountState(): Promise<AccountState> {
-    const state = await this.info.clearinghouseState({
-      user: this.masterAccountAddress,
-    })
-    const open = await this.info.openOrders({
-      user: this.masterAccountAddress,
-    })
+    const mode = await this.resolveAbstractionMode()
+
+    const [perp, open] = await Promise.all([
+      this.info.clearinghouseState({ user: this.masterAccountAddress }),
+      this.info.openOrders({ user: this.masterAccountAddress }),
+    ])
+    const positions = perp.assetPositions
+      .filter((ap) => Number(ap.position.szi) !== 0)
+      .map((ap) => ({
+        pair: ap.position.coin,
+        side: Number(ap.position.szi) > 0 ? ('long' as const) : ('short' as const),
+        size_coin: Math.abs(Number(ap.position.szi)),
+        entry_price: Number(ap.position.entryPx ?? 0),
+        unrealised_pnl_usd: Number(ap.position.unrealizedPnl ?? 0),
+      }))
+
+    let balance_usd: number
+    if (mode === 'unifiedAccount' || mode === 'portfolioMargin') {
+      const spot = await this.info.spotClearinghouseState({
+        user: this.masterAccountAddress,
+      })
+      const usdc = spot.balances.find((b) => b.coin === 'USDC')
+      balance_usd = usdc ? Number(usdc.total) : 0
+    } else {
+      balance_usd = Number(perp.marginSummary.accountValue ?? 0)
+    }
+
     return {
-      balance_usd: Number(state.marginSummary.accountValue ?? 0),
-      positions: state.assetPositions
-        .filter((ap) => Number(ap.position.szi) !== 0)
-        .map((ap) => ({
-          pair: ap.position.coin,
-          side: Number(ap.position.szi) > 0 ? 'long' : 'short',
-          size_coin: Math.abs(Number(ap.position.szi)),
-          entry_price: Number(ap.position.entryPx ?? 0),
-          unrealised_pnl_usd: Number(ap.position.unrealizedPnl ?? 0),
-        })),
+      balance_usd,
+      positions,
       open_order_count: open.length,
+      abstraction_mode: mode,
+    }
+  }
+
+  // Resolves the master account's abstraction mode and caches it
+  // for the lifetime of the client instance. Hyperliquid lets a
+  // user toggle modes via a signed userSetAbstraction action, so
+  // an instance that lives across mode flips would see stale
+  // data; a fresh client is built every server-action invocation
+  // so this is fine in practice. If a long-lived client ever
+  // shows up (e.g. a websocket client), drop the cache or expose
+  // an invalidate method.
+  private async resolveAbstractionMode(): Promise<AccountAbstractionMode> {
+    if (this.abstractionMode) return this.abstractionMode
+    const raw = await this.info.userAbstraction({
+      user: this.masterAccountAddress,
+    })
+    // The SDK enum is "unifiedAccount" | "portfolioMargin" |
+    // "disabled" | "default" | "dexAbstraction". Cast through
+    // unknown so a future widening on the SDK side does not
+    // silently break our union; the fallback in the switch
+    // catches anything we don't yet recognise.
+    const mode = raw as AccountAbstractionMode
+    switch (mode) {
+      case 'default':
+      case 'disabled':
+      case 'unifiedAccount':
+      case 'portfolioMargin':
+      case 'dexAbstraction':
+        this.abstractionMode = mode
+        return mode
+      default:
+        // Unknown mode - treat as 'default' so balance reads from
+        // perp clearinghouse rather than throwing. Logged so we
+        // can spot the new value and add a branch.
+        console.warn(
+          `[hyperliquid] unknown abstraction mode ${JSON.stringify(raw)}; falling back to 'default'`,
+        )
+        this.abstractionMode = 'default'
+        return 'default'
     }
   }
 }

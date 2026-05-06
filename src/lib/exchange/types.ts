@@ -78,10 +78,26 @@ export type Position = {
   unrealised_pnl_usd: number
 }
 
+// Hyperliquid account abstraction modes. Drives where balance is
+// read from: 'default' / 'disabled' use the perp clearinghouse;
+// 'unifiedAccount' / 'portfolioMargin' use the spot clearinghouse
+// (USDC entry); 'dexAbstraction' is HIP-3 and currently treated
+// as 'default' until we have a real account in that mode.
+// 'mock' is the synthetic value the mock client returns so the
+// pipeline does not have to special-case it.
+export type AccountAbstractionMode =
+  | 'default'
+  | 'disabled'
+  | 'unifiedAccount'
+  | 'portfolioMargin'
+  | 'dexAbstraction'
+  | 'mock'
+
 export type AccountState = {
   balance_usd: number
   positions: Position[]
   open_order_count: number
+  abstraction_mode: AccountAbstractionMode
 }
 
 // Inputs the pipeline gives the mock client so it can simulate
