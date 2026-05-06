@@ -1300,6 +1300,54 @@ export type Database = {
         }
         Relationships: []
       }
+      walk_forward_runs: {
+        Row: {
+          id: string
+          tenant_id: string
+          user_id: string
+          strategy_id: string
+          parent_config: Record<string, unknown>
+          window_size_days: number
+          step_size_days: number
+          status: 'queued' | 'running' | 'complete' | 'failed'
+          child_run_ids: string[]
+          summary: Record<string, unknown> | null
+          error_message: string | null
+          created_at: string
+          completed_at: string | null
+        }
+        Insert: {
+          id?: string
+          tenant_id: string
+          user_id: string
+          strategy_id: string
+          parent_config: Record<string, unknown>
+          window_size_days: number
+          step_size_days: number
+          status?: 'queued' | 'running' | 'complete' | 'failed'
+          child_run_ids?: string[]
+          summary?: Record<string, unknown> | null
+          error_message?: string | null
+          created_at?: string
+          completed_at?: string | null
+        }
+        Update: {
+          id?: string
+          tenant_id?: string
+          user_id?: string
+          strategy_id?: string
+          parent_config?: Record<string, unknown>
+          window_size_days?: number
+          step_size_days?: number
+          status?: 'queued' | 'running' | 'complete' | 'failed'
+          child_run_ids?: string[]
+          summary?: Record<string, unknown> | null
+          error_message?: string | null
+          created_at?: string
+          completed_at?: string | null
+        }
+        Relationships: []
+      }
       backtest_candles: {
         Row: {
           id: string
