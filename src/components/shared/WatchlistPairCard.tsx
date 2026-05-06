@@ -18,7 +18,7 @@ export type WatchlistPairCardProps = {
 }
 
 function formatPrice(value: number | null): string {
-  if (value == null || !Number.isFinite(value)) return '—'
+  if (value == null || !Number.isFinite(value)) return '-'
   const abs = Math.abs(value)
   let digits: number
   if (abs >= 1000) digits = 0
@@ -34,17 +34,17 @@ function formatPrice(value: number | null): string {
 }
 
 function formatPct(value: number | null, digits = 2): string {
-  if (value == null || !Number.isFinite(value)) return '—'
+  if (value == null || !Number.isFinite(value)) return '-'
   return `${value >= 0 ? '+' : ''}${(value * 100).toFixed(digits)}%`
 }
 
 function formatPctRaw(value: number | null, digits = 2): string {
-  if (value == null || !Number.isFinite(value)) return '—'
+  if (value == null || !Number.isFinite(value)) return '-'
   return `${value >= 0 ? '+' : ''}${value.toFixed(digits)}%`
 }
 
 function formatMillions(value: number | null): string {
-  if (value == null || !Number.isFinite(value)) return '—'
+  if (value == null || !Number.isFinite(value)) return '-'
   if (Math.abs(value) >= 1_000_000_000) {
     return `$${(value / 1_000_000_000).toFixed(2)}B`
   }
@@ -101,7 +101,7 @@ function NarrativePill({
 function ChangeBadge({ value }: { value: number | null }) {
   if (value == null || !Number.isFinite(value)) {
     return (
-      <span className="font-mono text-xs tabular-nums text-white/45">—</span>
+      <span className="font-mono text-xs tabular-nums text-white/45">-</span>
     )
   }
   const positive = value > 0
@@ -398,7 +398,7 @@ export function WatchlistPairCard({
           <MarketStat
             label="RSI(14)"
             value={
-              pair.context.rsi14 == null ? '—' : pair.context.rsi14.toFixed(1)
+              pair.context.rsi14 == null ? '-' : pair.context.rsi14.toFixed(1)
             }
           />
           <MarketStat

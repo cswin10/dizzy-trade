@@ -20,7 +20,7 @@ export type SweepResultsHeatmapProps = {
 }
 
 function formatGbp(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return '—'
+  if (value === null || !Number.isFinite(value)) return '-'
   const sign = value < 0 ? '-' : value > 0 ? '+' : ''
   return `${sign}£${Math.abs(value).toLocaleString('en-GB', {
     maximumFractionDigits: 0,
@@ -142,7 +142,7 @@ export function SweepResultsHeatmap({
                       className="cursor-default rounded p-2 text-center font-mono text-[11px] text-white/85"
                       style={{ background: bg, minWidth: 64 }}
                     >
-                      {cell ? formatGbp(cell.pnlGbp) : '—'}
+                      {cell ? formatGbp(cell.pnlGbp) : '-'}
                     </td>
                   )
                 })}
@@ -154,14 +154,14 @@ export function SweepResultsHeatmap({
       {hovered ? (
         <div className="rounded-md border border-white/[0.06] bg-surface-2 p-3 font-mono text-xs text-white/85">
           {xKey}={formatLabel(hovered.xValue)} · {yKey}=
-          {formatLabel(hovered.yValue)} · trades={hovered.totalTrades ?? '—'} ·
+          {formatLabel(hovered.yValue)} · trades={hovered.totalTrades ?? '-'} ·
           win=
           {hovered.winRate != null
             ? `${(hovered.winRate * 100).toFixed(1)}%`
-            : '—'}
+            : '-'}
           {' · '}
-          avgR={hovered.avgR != null ? hovered.avgR.toFixed(2) : '—'} · Sharpe=
-          {hovered.sharpe != null ? hovered.sharpe.toFixed(2) : '—'} · pnl=
+          avgR={hovered.avgR != null ? hovered.avgR.toFixed(2) : '-'} · Sharpe=
+          {hovered.sharpe != null ? hovered.sharpe.toFixed(2) : '-'} · pnl=
           {formatGbp(hovered.pnlGbp)}
         </div>
       ) : null}

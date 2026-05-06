@@ -15,7 +15,7 @@ export type BacktestResultsCardsProps = {
 }
 
 function formatGbp(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return '—'
+  if (value === null || !Number.isFinite(value)) return '-'
   const sign = value < 0 ? '-' : ''
   return `${sign}£${Math.abs(value).toLocaleString('en-GB', {
     maximumFractionDigits: 0,
@@ -23,12 +23,12 @@ function formatGbp(value: number | null): string {
 }
 
 function formatPct(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return '—'
+  if (value === null || !Number.isFinite(value)) return '-'
   return `${(value * 100).toFixed(1)}%`
 }
 
 function formatNumber(value: number | null, digits = 2): string {
-  if (value === null || !Number.isFinite(value)) return '—'
+  if (value === null || !Number.isFinite(value)) return '-'
   return value.toFixed(digits)
 }
 
@@ -42,7 +42,7 @@ export function BacktestResultsCards({
 }: BacktestResultsCardsProps) {
   return (
     <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
-      <Card label="Total trades" value={totalTrades?.toString() ?? '—'} />
+      <Card label="Total trades" value={totalTrades?.toString() ?? '-'} />
       <Card label="Win rate" value={formatPct(winRate)} />
       <Card label="Avg R" value={formatNumber(avgR)} />
       <Card
@@ -63,7 +63,7 @@ export function BacktestResultsCards({
         value={
           maxDrawdownGbp != null
             ? `-${formatGbp(maxDrawdownGbp).replace('-', '')}`
-            : '—'
+            : '-'
         }
         accent="negative"
       />

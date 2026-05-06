@@ -604,7 +604,7 @@ export type CorrelationCell = {
   b_name: string
   // Pearson correlation of daily PnL series. NaN when either
   // series has zero variance (e.g. a strategy with all-zero
-  // pnl); we surface those as null so the UI can render '—'.
+  // pnl); we surface those as null so the UI can render '-'.
   correlation: number | null
 }
 

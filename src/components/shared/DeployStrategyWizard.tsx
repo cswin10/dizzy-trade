@@ -14,6 +14,7 @@ import { deployStrategyAction } from '@/app/actions/live-deployments'
 import { SafetyLimitsPanel } from '@/components/shared/SafetyLimitsPanel'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
+import { HARDCODED_SAFETY_LIMITS } from '@/lib/live/safety-limits'
 
 export type DeployStrategyWizardProps = {
   strategy: {
@@ -44,7 +45,7 @@ export type DeployStrategyWizardProps = {
 }
 
 function formatGbp(value: number | null): string {
-  if (value == null || !Number.isFinite(value)) return '—'
+  if (value == null || !Number.isFinite(value)) return '-'
   const sign = value < 0 ? '-' : value > 0 ? '+' : ''
   return `${sign}£${Math.abs(value).toLocaleString('en-GB', {
     maximumFractionDigits: 0,
@@ -52,12 +53,12 @@ function formatGbp(value: number | null): string {
 }
 
 function formatPct(value: number | null): string {
-  if (value == null || !Number.isFinite(value)) return '—'
+  if (value == null || !Number.isFinite(value)) return '-'
   return `${(value * 100).toFixed(1)}%`
 }
 
 function formatNumber(value: number | null, digits = 2): string {
-  if (value == null || !Number.isFinite(value)) return '—'
+  if (value == null || !Number.isFinite(value)) return '-'
   return value.toFixed(digits)
 }
 
@@ -72,7 +73,13 @@ export function DeployStrategyWizard({
   const [selectedBacktest, setSelectedBacktest] = useState<string>(
     recentBacktests[0]?.id ?? '',
   )
-  const [riskGbp, setRiskGbp] = useState(10)
+  // Default to the hardcoded per-trade risk cap so the deploy
+  // form does not auto-pick a value that the safety check would
+  // immediately reject. Sourcing from the constant keeps the
+  // default in sync if the cap ever changes.
+  const [riskGbp, setRiskGbp] = useState<number>(
+    HARDCODED_SAFETY_LIMITS.MAX_RISK_GBP_PER_TRADE,
+  )
   const [pairs, setPairs] = useState<string[]>([...strategy.pairs])
   // Universe-first ordering with anything the strategy specifically
   // mentions appended (deduped) so a strategy configured against a
@@ -177,7 +184,7 @@ export function DeployStrategyWizard({
                   label="Max DD"
                   value={
                     selected.max_drawdown_gbp == null
-                      ? '—'
+                      ? '-'
                       : formatGbp(-Math.abs(selected.max_drawdown_gbp))
                   }
                 />
@@ -187,11 +194,11 @@ export function DeployStrategyWizard({
               Manual confirmation plus limit orders typically captures 50-70%
               of backtest edge for momentum strategies and 60-80% for mean
               reversion. Backtest avg R{' '}
-              {selected?.avg_r != null ? formatNumber(selected.avg_r) : '—'} ⇒
+              {selected?.avg_r != null ? formatNumber(selected.avg_r) : '-'} ⇒
               realistic live{' '}
               {selected?.avg_r != null
                 ? `${formatNumber(selected.avg_r * 0.5)} to ${formatNumber(selected.avg_r * 0.7)}`
-                : '—'}
+                : '-'}
               .
             </p>
           </>

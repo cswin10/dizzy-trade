@@ -22,7 +22,7 @@ export type BatchAnalyticsSectionsProps = {
 
 function formatGbp(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) {
-    return '—'
+    return '-'
   }
   const sign = value < 0 ? '-' : value > 0 ? '+' : ''
   return `${sign}£${Math.abs(value).toLocaleString('en-GB', {
@@ -32,7 +32,7 @@ function formatGbp(value: number | null | undefined): string {
 
 function formatPct(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) {
-    return '—'
+    return '-'
   }
   return `${(value * 100).toFixed(1)}%`
 }
@@ -42,7 +42,7 @@ function formatNumber(
   digits = 2,
 ): string {
   if (value === null || value === undefined || !Number.isFinite(value)) {
-    return '—'
+    return '-'
   }
   return value.toFixed(digits)
 }
@@ -157,7 +157,7 @@ function CorrelationMatrixSection({ matrix }: { matrix: CorrelationMatrix }) {
                       style={{ backgroundColor: bg }}
                       title={`${matrix.run_names[i]} ↔ ${matrix.run_names[j]}: ${r === null ? 'n/a' : r.toFixed(3)}`}
                     >
-                      {r === null ? '—' : r.toFixed(2)}
+                      {r === null ? '-' : r.toFixed(2)}
                     </td>
                   )
                 })}
@@ -250,7 +250,7 @@ function CombinedPortfolioSection({
           label="Recovery factor"
           value={
             combined.recovery_factor === null
-              ? '—'
+              ? '-'
               : combined.recovery_factor.toFixed(2)
           }
           valueClassName={recoveryTone}

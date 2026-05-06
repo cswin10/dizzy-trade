@@ -221,7 +221,7 @@ export default async function DashboardPage() {
                     </span>
                     <span className="font-medium tabular-nums">
                       {s.unrealizedPnl == null
-                        ? '—'
+                        ? '-'
                         : `${s.unrealizedPnl >= 0 ? '+' : ''}${s.unrealizedPnl.toFixed(2)}`}{' '}
                       <span className="text-white/40">live</span>
                     </span>

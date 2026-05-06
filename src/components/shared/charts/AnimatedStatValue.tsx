@@ -21,7 +21,7 @@ const gbpAbsFormatter = new Intl.NumberFormat('en-GB', {
 })
 
 function formatValue(value: number, format: StatFormat): string {
-  if (!Number.isFinite(value)) return '—'
+  if (!Number.isFinite(value)) return '-'
   switch (format) {
     case 'integer':
       return Math.round(value).toLocaleString('en-GB')

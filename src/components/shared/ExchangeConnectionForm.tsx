@@ -16,7 +16,7 @@ export type ExchangeConnectionFormProps = {
 }
 
 function formatUsd(value: number): string {
-  if (!Number.isFinite(value)) return '—'
+  if (!Number.isFinite(value)) return '-'
   return value.toLocaleString('en-GB', {
     style: 'currency',
     currency: 'USD',

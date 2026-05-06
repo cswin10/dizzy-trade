@@ -27,7 +27,7 @@ export type BacktestTradesTableProps = {
 const PAGE_SIZE = 20
 
 function formatDate(iso: string | null): string {
-  if (!iso) return '—'
+  if (!iso) return '-'
   return new Date(iso).toLocaleString('en-GB', {
     day: '2-digit',
     month: 'short',
@@ -37,7 +37,7 @@ function formatDate(iso: string | null): string {
 }
 
 function formatPrice(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return '—'
+  if (value === null || !Number.isFinite(value)) return '-'
   if (Math.abs(value) >= 1000) return value.toFixed(0)
   if (Math.abs(value) >= 10) return value.toFixed(2)
   return value.toFixed(4)
@@ -171,7 +171,7 @@ export function BacktestTradesTable({ trades }: BacktestTradesTableProps) {
                       {formatPrice(trade.exit_price)}
                     </td>
                     <td className="px-3 py-2 text-white/55">
-                      {trade.exit_reason ?? '—'}
+                      {trade.exit_reason ?? '-'}
                     </td>
                     <td
                       className={twMerge(
@@ -185,7 +185,7 @@ export function BacktestTradesTable({ trades }: BacktestTradesTableProps) {
                     >
                       {trade.r_multiple != null
                         ? trade.r_multiple.toFixed(2)
-                        : '—'}
+                        : '-'}
                     </td>
                     <td className="px-3 py-2">
                       <span
@@ -199,7 +199,7 @@ export function BacktestTradesTable({ trades }: BacktestTradesTableProps) {
                             'bg-white/10 text-white/55',
                         )}
                       >
-                        {trade.outcome ?? '—'}
+                        {trade.outcome ?? '-'}
                       </span>
                     </td>
                   </tr>

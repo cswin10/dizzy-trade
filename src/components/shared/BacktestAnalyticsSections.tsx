@@ -35,7 +35,7 @@ export type BacktestAnalyticsSectionsProps = {
 
 function formatGbp(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) {
-    return '—'
+    return '-'
   }
   const sign = value < 0 ? '-' : value > 0 ? '+' : ''
   return `${sign}£${Math.abs(value).toLocaleString('en-GB', {
@@ -45,7 +45,7 @@ function formatGbp(value: number | null | undefined): string {
 
 function formatPct(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) {
-    return '—'
+    return '-'
   }
   return `${(value * 100).toFixed(1)}%`
 }
@@ -55,7 +55,7 @@ function formatNumber(
   digits = 2,
 ): string {
   if (value === null || value === undefined || !Number.isFinite(value)) {
-    return '—'
+    return '-'
   }
   return value.toFixed(digits)
 }
@@ -130,9 +130,9 @@ function MonthlyReturns({
             </table>
           </div>
           <p className="mt-3 text-[11px] text-white/55">
-            Best month: {monthly.best_month_label ?? '—'}{' '}
+            Best month: {monthly.best_month_label ?? '-'}{' '}
             ({formatGbp(monthly.best_month_pnl)}). Worst month:{' '}
-            {monthly.worst_month_label ?? '—'}{' '}
+            {monthly.worst_month_label ?? '-'}{' '}
             ({formatGbp(monthly.worst_month_pnl)}). Months profitable:{' '}
             {monthly.profitable_months} of {monthly.total_months}.
           </p>
@@ -199,8 +199,8 @@ function HourHeatmap({ hour }: { hour: BacktestAnalytics['hour'] }) {
             </table>
           </div>
           <p className="mt-3 text-[11px] text-white/55">
-            Best hours: {hour.best_hour_range ?? '—'}. Worst hours:{' '}
-            {hour.worst_hour_range ?? '—'}.{' '}
+            Best hours: {hour.best_hour_range ?? '-'}. Worst hours:{' '}
+            {hour.worst_hour_range ?? '-'}.{' '}
             <span className="text-white/35">
               Rows with fewer than 3 trades are dimmed; sample is too small to
               read into.
@@ -239,13 +239,13 @@ function HourRow({
       </td>
       <td className="px-3 py-2 text-right font-mono">{row.trades}</td>
       <td className="px-3 py-2 text-right font-mono">
-        {row.trades > 0 ? formatPct(row.win_rate) : '—'}
+        {row.trades > 0 ? formatPct(row.win_rate) : '-'}
       </td>
       <td className="px-3 py-2 text-right font-mono">
-        {row.trades > 0 ? formatNumber(row.avg_r) : '—'}
+        {row.trades > 0 ? formatNumber(row.avg_r) : '-'}
       </td>
       <td className="px-3 py-2 text-right font-mono">
-        {row.trades > 0 ? formatGbp(row.total_pnl_gbp) : '—'}
+        {row.trades > 0 ? formatGbp(row.total_pnl_gbp) : '-'}
       </td>
     </tr>
   )
@@ -377,7 +377,7 @@ function DrawdownProfileSection({
           label="Recovery factor"
           value={
             drawdown.recovery_factor === null
-              ? '—'
+              ? '-'
               : drawdown.recovery_factor.toFixed(2)
           }
           valueClassName={recoveryTone}
@@ -489,7 +489,7 @@ function StreaksSection({
 }) {
   const currentLabel =
     streaks.current_streak === 0
-      ? '—'
+      ? '-'
       : streaks.current_streak > 0
         ? `${streaks.current_streak} wins`
         : `${Math.abs(streaks.current_streak)} losses`

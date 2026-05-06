@@ -91,7 +91,7 @@ export default async function StrategyDetailPage({
             }
           />
           <KV label="Timeframe" value={row.timeframe} />
-          <KV label="Pairs" value={(row.pairs ?? []).join(', ') || '—'} />
+          <KV label="Pairs" value={(row.pairs ?? []).join(', ') || '-'} />
           <KV
             label="Max concurrent positions"
             value={String(row.max_concurrent_positions)}

@@ -10,7 +10,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 export const metadata = { title: 'Deployment · Dizzy Trade' }
 
 function formatGbp(value: number): string {
-  if (!Number.isFinite(value)) return '—'
+  if (!Number.isFinite(value)) return '-'
   const sign = value < 0 ? '-' : value > 0 ? '+' : ''
   return `${sign}£${Math.abs(value).toLocaleString('en-GB', {
     maximumFractionDigits: 2,
@@ -18,12 +18,12 @@ function formatGbp(value: number): string {
 }
 
 function formatNumber(value: number, digits = 2): string {
-  if (!Number.isFinite(value)) return '—'
+  if (!Number.isFinite(value)) return '-'
   return value.toFixed(digits)
 }
 
 function formatTime(iso: string | null): string {
-  if (!iso) return '—'
+  if (!iso) return '-'
   return new Date(iso).toLocaleString('en-GB', {
     day: '2-digit',
     month: 'short',
@@ -125,11 +125,11 @@ export default async function DeploymentDetailPage({
         <Stat label="Signals fired" value={String(fired)} />
         <Stat
           label="Capture rate"
-          value={fired > 0 ? `${(captureRate * 100).toFixed(0)}%` : '—'}
+          value={fired > 0 ? `${(captureRate * 100).toFixed(0)}%` : '-'}
         />
         <Stat
           label="Fill rate"
-          value={confirmed > 0 ? `${(fillRate * 100).toFixed(0)}%` : '—'}
+          value={confirmed > 0 ? `${(fillRate * 100).toFixed(0)}%` : '-'}
         />
         <Stat label="Closes" value={String(closed.length)} />
         <Stat
@@ -139,7 +139,7 @@ export default async function DeploymentDetailPage({
         />
         <Stat
           label="Live avg R"
-          value={closed.length > 0 ? formatNumber(liveAvgR) : '—'}
+          value={closed.length > 0 ? formatNumber(liveAvgR) : '-'}
         />
       </section>
 
@@ -149,11 +149,11 @@ export default async function DeploymentDetailPage({
             Backtest comparison
           </h2>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Stat label="Backtest source" value={summary.name ?? '—'} />
+            <Stat label="Backtest source" value={summary.name ?? '-'} />
             <Stat
               label="Backtest avg R"
               value={
-                summary.avg_r != null ? formatNumber(Number(summary.avg_r)) : '—'
+                summary.avg_r != null ? formatNumber(Number(summary.avg_r)) : '-'
               }
             />
             <Stat
@@ -161,14 +161,14 @@ export default async function DeploymentDetailPage({
               value={
                 summary.win_rate != null
                   ? `${(Number(summary.win_rate) * 100).toFixed(1)}%`
-                  : '—'
+                  : '-'
               }
             />
             <Stat
               label="Edge captured"
               value={
                 edgeCaptured == null
-                  ? '—'
+                  ? '-'
                   : `${(edgeCaptured * 100).toFixed(0)}%`
               }
               tone={
@@ -236,7 +236,7 @@ export default async function DeploymentDetailPage({
                     <td className="px-3 py-2 text-right font-mono">
                       {s.exit_price != null
                         ? formatNumber(Number(s.exit_price))
-                        : '—'}
+                        : '-'}
                     </td>
                     <td className="px-3 py-2 text-right font-mono">
                       {formatGbp(Number(s.intended_risk_gbp))}
@@ -252,12 +252,12 @@ export default async function DeploymentDetailPage({
                     >
                       {s.realised_pnl_gbp != null
                         ? formatGbp(Number(s.realised_pnl_gbp))
-                        : '—'}
+                        : '-'}
                     </td>
                     <td className="px-3 py-2 text-right font-mono">
                       {s.realised_r_multiple != null
                         ? formatNumber(Number(s.realised_r_multiple))
-                        : '—'}
+                        : '-'}
                     </td>
                   </tr>
                 ))}

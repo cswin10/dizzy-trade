@@ -184,7 +184,7 @@ function DiagnosticBody({
           value={
             diagnostics.warmup_param_max > 0
               ? `${diagnostics.warmup_param_max} (param)`
-              : '— (legacy framework)'
+              : '- (legacy framework)'
           }
         />
         <Stat
