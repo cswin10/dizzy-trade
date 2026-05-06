@@ -151,8 +151,13 @@ export async function linkTradeToPositionAction(
 
   const service = createServiceClient()
 
-  const trade = await loadTrade(service, tenant.tenantId, tradeId)
-  if (!trade) return { ok: false, message: 'Trade not found' }
+  // Wrap the body so unhandled throws (e.g. loadTrade's
+  // throw-on-Supabase-error path, line 129) surface as
+  // {ok:false, message} rather than the digest-only error the
+  // server-action layer otherwise emits.
+  try {
+    const trade = await loadTrade(service, tenant.tenantId, tradeId)
+    if (!trade) return { ok: false, message: 'Trade not found' }
 
   const { data: configRows, error: configError } = await service
     .from('user_hyperliquid_config')
@@ -251,11 +256,18 @@ export async function linkTradeToPositionAction(
     })
     .eq('id', trade.id)
     .eq('tenant_id', tenant.tenantId)
-  if (liveError) return { ok: false, message: liveError.message }
+    if (liveError) return { ok: false, message: liveError.message }
 
-  revalidatePath('/journal')
-  revalidatePath('/dashboard')
-  return { ok: true }
+    revalidatePath('/journal')
+    revalidatePath('/dashboard')
+    return { ok: true }
+  } catch (error) {
+    return {
+      ok: false,
+      message:
+        error instanceof Error ? error.message : 'Link to position failed',
+    }
+  }
 }
 
 export async function unlinkTradeAction(

@@ -62,6 +62,13 @@ export type CancelOrderInput = {
 
 export type CancelAllInput = {
   pair?: string
+  // Optional whitelist of client order ids to cancel. When set,
+  // the client only cancels orders whose cloid appears in the
+  // list, leaving manual orders on the master account untouched.
+  // Used by the kill switch and the per-deployment pause path so
+  // pulling the trigger on Dizzy does not also cancel orders the
+  // user placed by hand on the Hyperliquid UI.
+  cloid_whitelist?: ReadonlySet<string>
 }
 
 export type OrderResult =

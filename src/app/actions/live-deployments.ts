@@ -150,8 +150,36 @@ export async function pauseDeploymentAction(
   if (!deployment) {
     return { ok: false, message: 'Deployment not found' }
   }
+  // Build a cloid whitelist from this deployment's in-flight
+  // signals so we only cancel orders Dizzy placed for this
+  // deployment - manual orders on the master account, and
+  // orders from other live deployments under the same tenant,
+  // are left alone.
+  const { data: deploymentSignals } = await service
+    .from('live_signals')
+    .select('cloid, exchange_stop_cloid, exchange_target_cloid')
+    .eq('deployment_id', id)
+    .in('status', [
+      'pending_confirmation',
+      'confirmed',
+      'order_placed',
+      'filled',
+    ])
+  const cloidWhitelist = new Set<string>()
+  for (const row of (deploymentSignals ?? []) as Array<{
+    cloid: string | null
+    exchange_stop_cloid: string | null
+    exchange_target_cloid: string | null
+  }>) {
+    if (row.cloid) cloidWhitelist.add(row.cloid)
+    if (row.exchange_stop_cloid) cloidWhitelist.add(row.exchange_stop_cloid)
+    if (row.exchange_target_cloid) cloidWhitelist.add(row.exchange_target_cloid)
+  }
   for (const pair of deployment.live_pairs ?? []) {
-    await client.cancelAllOrders({ pair })
+    await client.cancelAllOrders({
+      pair,
+      cloid_whitelist: cloidWhitelist.size > 0 ? cloidWhitelist : undefined,
+    })
   }
   await service
     .from('strategy_deployments')

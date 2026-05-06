@@ -1,3 +1,5 @@
+import 'server-only'
+
 // Mock Hyperliquid exchange client used during Phase 1 of the live
 // deployment rollout. Stores orders in a process-local map and
 // simulates fills based on a price stream the test harness pushes

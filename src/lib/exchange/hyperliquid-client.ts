@@ -265,14 +265,21 @@ export class HyperliquidClient implements ExchangeClient {
   async cancelAllOrders(input: CancelAllInput): Promise<CancelAllResult> {
     // Hyperliquid does not expose a single "cancel everything"
     // call; we have to enumerate the open orders and cancel by
-    // order id. Filtering by pair when provided.
+    // order id. Filters: pair (when provided) and cloid_whitelist
+    // (so the kill switch only cancels orders Dizzy placed,
+    // leaving any manual orders on the master account intact).
     try {
       const open = await this.info.openOrders({
         user: this.masterAccountAddress,
       })
-      const filtered = input.pair
-        ? open.filter((o) => o.coin === input.pair)
-        : open
+      const filtered = open.filter((o) => {
+        if (input.pair && o.coin !== input.pair) return false
+        if (input.cloid_whitelist) {
+          if (!o.cloid) return false
+          if (!input.cloid_whitelist.has(o.cloid)) return false
+        }
+        return true
+      })
       if (filtered.length === 0) {
         return { ok: true, cancelled_order_ids: [] }
       }

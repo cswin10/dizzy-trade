@@ -1,3 +1,5 @@
+import 'server-only'
+
 // Live signal pipeline. Orchestrates the journey of one trade
 // idea from "scanner detected a setup" through to "position
 // closed and journalled":
@@ -435,7 +437,7 @@ export async function placeEntryOrder(
     expires_at: expiresAt,
   })
   if (!result.ok) {
-    await service
+    const { error: failedWriteError } = await service
       .from('live_signals')
       .update({
         status: 'failed',
@@ -443,9 +445,18 @@ export async function placeEntryOrder(
         cloid,
       })
       .eq('id', signal.id)
+    if (failedWriteError) {
+      // The exchange already rejected the order; if we also fail
+      // to record the failure, surface that explicitly so the
+      // operator knows the row is out of sync.
+      return {
+        ok: false,
+        reason: `${result.reason} (failed to persist failure: ${failedWriteError.message})`,
+      }
+    }
     return { ok: false, reason: result.reason }
   }
-  await service
+  const { error: placedWriteError } = await service
     .from('live_signals')
     .update({
       status: 'order_placed',
@@ -454,6 +465,17 @@ export async function placeEntryOrder(
       cloid,
     })
     .eq('id', signal.id)
+  if (placedWriteError) {
+    // The exchange accepted the order but we could not record it.
+    // The order is live with no row-level handle; the next
+    // monitor tick will not find it. Surface as an outright
+    // failure so the operator can manually cancel via the
+    // Hyperliquid UI before it fills.
+    return {
+      ok: false,
+      reason: `Order placed (id=${result.order_id}) but row write failed: ${placedWriteError.message}. Cancel manually on the exchange.`,
+    }
+  }
   return { ok: true }
 }
 
@@ -758,17 +780,13 @@ export async function pauseAllForTenant(
   cancelled_orders: number
   cancelled_signals: number
 }> {
-  // Cancel every open order on the exchange. Phase 1 mock does
-  // this in one call regardless of pair; Phase 2 may need to fan
-  // out per-pair if the real client requires it.
-  const cancelled = await client.cancelAllOrders({})
-  const cancelledOrderCount = cancelled.cancelled_order_ids.length
-
-  // Find the in-flight signals so the count returned to the UI
-  // is honest about what got rolled back.
+  // Build the cloid whitelist from this tenant's in-flight
+  // signals so the kill switch only cancels orders Dizzy placed.
+  // Manual orders the operator opened directly on the Hyperliquid
+  // UI stay untouched.
   const { data: openSignals } = await service
     .from('live_signals')
-    .select('id')
+    .select('id, cloid, exchange_stop_cloid, exchange_target_cloid')
     .eq('tenant_id', tenantId)
     .in('status', [
       'pending_confirmation',
@@ -776,6 +794,20 @@ export async function pauseAllForTenant(
       'order_placed',
       'filled',
     ])
+  const cloidWhitelist = new Set<string>()
+  for (const row of (openSignals ?? []) as Array<{
+    cloid: string | null
+    exchange_stop_cloid: string | null
+    exchange_target_cloid: string | null
+  }>) {
+    if (row.cloid) cloidWhitelist.add(row.cloid)
+    if (row.exchange_stop_cloid) cloidWhitelist.add(row.exchange_stop_cloid)
+    if (row.exchange_target_cloid) cloidWhitelist.add(row.exchange_target_cloid)
+  }
+  const cancelled = await client.cancelAllOrders({
+    cloid_whitelist: cloidWhitelist.size > 0 ? cloidWhitelist : undefined,
+  })
+  const cancelledOrderCount = cancelled.cancelled_order_ids.length
   const cancelledSignalCount = (openSignals ?? []).length
   if (cancelledSignalCount > 0) {
     await service
