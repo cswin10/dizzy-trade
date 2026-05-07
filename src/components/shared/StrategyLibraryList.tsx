@@ -20,6 +20,7 @@ import {
 } from '@/lib/strategies/categories'
 
 import { ConfirmDialog } from './ConfirmDialog'
+import { BatchSelectActionBar } from './BatchSelectActionBar'
 
 export type StrategyLibraryListProps = {
   rows: StrategyLibraryRow[]
@@ -83,6 +84,7 @@ export function StrategyLibraryList({ rows }: StrategyLibraryListProps) {
   )
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [pendingBulkArchive, setPendingBulkArchive] = useState(false)
+  const [pendingBulkDelete, setPendingBulkDelete] = useState(false)
 
   // Filter state lives in the URL so a hunting session is bookmarkable
   // and survives a full page refresh. We read once per render rather
@@ -290,6 +292,30 @@ export function StrategyLibraryList({ rows }: StrategyLibraryListProps) {
     })
   }
 
+  function performBulkDelete() {
+    setError(null)
+    const ids = [...selectedComposable]
+    if (ids.length === 0) {
+      setPendingBulkDelete(false)
+      return
+    }
+    startTransition(async () => {
+      const failures: string[] = []
+      for (const id of ids) {
+        const result = await deleteStrategyDefinitionAction(id)
+        if (!result.ok) failures.push(result.message ?? id)
+      }
+      setPendingBulkDelete(false)
+      setSelected(new Set())
+      if (failures.length > 0) {
+        setError(
+          `Deleted ${ids.length - failures.length} of ${ids.length}. ${failures.length} failed: ${failures[0]}`,
+        )
+      }
+      router.refresh()
+    })
+  }
+
   if (rows.length === 0) {
     return (
       <div className="rounded-lg border border-white/[0.06] bg-surface p-10 text-center">
@@ -388,29 +414,11 @@ export function StrategyLibraryList({ rows }: StrategyLibraryListProps) {
           {filtered.length} of {rows.length}
         </span>
         {selected.size > 0 ? (
-          <>
-            <span className="text-white/65">·</span>
-            <span className="text-white/65">{selected.size} selected</span>
-            <button
-              type="button"
-              onClick={() => setPendingBulkArchive(true)}
-              disabled={isPending || archivableSelectedCount === 0}
-              className="rounded-md border border-amber-400/30 bg-amber-400/10 px-3 py-1 text-xs text-amber-200 transition-colors hover:bg-amber-400/20 disabled:opacity-40"
-            >
-              Archive selected
-              {archivableSelectedCount !== selected.size
-                ? ` (${archivableSelectedCount})`
-                : ''}
-            </button>
-            <button
-              type="button"
-              onClick={() => setSelected(new Set())}
-              className="text-xs text-white/45 hover:text-white"
-            >
-              Clear
-            </button>
-          </>
+          <span className="text-white/65">{selected.size} selected</span>
         ) : null}
+        <span className="ml-auto text-white/35">
+          Tick rows to archive in bulk or run a head-to-head batch backtest.
+        </span>
       </div>
 
       {error ? (
@@ -419,7 +427,7 @@ export function StrategyLibraryList({ rows }: StrategyLibraryListProps) {
         </div>
       ) : null}
 
-      <ul className="flex flex-col gap-2">
+      <ul className={twMerge('flex flex-col gap-2', selected.size > 0 && 'pb-20')}>
         {filtered.map((row) => {
           const key = `${row.source}:${row.id}`
           const isComposable = row.source === 'composable'
@@ -610,6 +618,32 @@ export function StrategyLibraryList({ rows }: StrategyLibraryListProps) {
             : 'These strategies will be archived. You can restore them from the Archived filter.'
         }
         confirmLabel={`Archive ${archivableSelectedCount}`}
+        busy={isPending}
+      />
+
+      <ConfirmDialog
+        open={pendingBulkDelete}
+        onClose={() => setPendingBulkDelete(false)}
+        onConfirm={performBulkDelete}
+        title={`Delete ${archivableSelectedCount} ${
+          archivableSelectedCount === 1 ? 'strategy' : 'strategies'
+        }?`}
+        message={
+          selectedLegacy.length > 0
+            ? `${archivableSelectedCount} composable strategies will be removed permanently. ${selectedLegacy.length} framework strategies in the selection will be left alone (use the legacy editor in Settings to delete those). This cannot be undone.`
+            : 'These strategies will be removed permanently. This cannot be undone.'
+        }
+        confirmLabel={`Delete ${archivableSelectedCount}`}
+        destructive
+        busy={isPending}
+      />
+
+      <BatchSelectActionBar
+        selectedComposable={selectedComposable}
+        selectedLegacy={selectedLegacy}
+        onClear={() => setSelected(new Set())}
+        onBulkArchive={() => setPendingBulkArchive(true)}
+        onBulkDelete={() => setPendingBulkDelete(true)}
         busy={isPending}
       />
     </>
