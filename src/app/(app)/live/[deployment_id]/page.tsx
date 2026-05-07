@@ -60,20 +60,21 @@ export default async function DeploymentDetailPage({
   if (!user) redirect('/sign-in')
 
   const service = createServiceClient()
-  const { data: deployment } = await service
-    .from('strategy_deployments')
-    .select('*')
-    .eq('id', params.deployment_id)
-    .single()
+  const [deploymentRes, signalsRes] = await Promise.all([
+    service
+      .from('strategy_deployments')
+      .select('*')
+      .eq('id', params.deployment_id)
+      .single(),
+    service
+      .from('live_signals')
+      .select('*')
+      .eq('deployment_id', params.deployment_id)
+      .order('signal_at', { ascending: false }),
+  ])
+  const { data: deployment } = deploymentRes
   if (!deployment) notFound()
-
-  const { data: signals } = await service
-    .from('live_signals')
-    .select('*')
-    .eq('deployment_id', params.deployment_id)
-    .order('signal_at', { ascending: false })
-
-  const allSignals = signals ?? []
+  const allSignals = signalsRes.data ?? []
   const fired = allSignals.length
   const confirmed = allSignals.filter((s) => s.confirmed_at != null).length
   const filled = allSignals.filter((s) => s.filled_at != null).length
