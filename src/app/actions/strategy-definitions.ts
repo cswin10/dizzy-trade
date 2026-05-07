@@ -27,6 +27,7 @@ export type StrategyDefinitionRow = {
   is_archived: boolean
   created_at: string | null
   updated_at: string | null
+  version_n: number
 }
 
 export type StrategyDefinitionActionResult =
@@ -68,6 +69,7 @@ function rowToDomain(row: {
   is_archived: boolean
   created_at: string | null
   updated_at: string | null
+  version_n?: number | null
 }): StrategyDefinitionRow {
   return {
     id: row.id,
@@ -82,6 +84,7 @@ function rowToDomain(row: {
     is_archived: row.is_archived,
     created_at: row.created_at,
     updated_at: row.updated_at,
+    version_n: row.version_n ?? 1,
   }
 }
 
@@ -118,11 +121,34 @@ export async function createStrategyDefinitionAction(
       definition: parsed as unknown as Record<string, unknown>,
       schema_version: parsed.schema_version,
       is_archived: false,
+      version_n: 1,
     })
     .select('*')
     .single()
   if (error || !data) {
     return { ok: false, message: error?.message ?? 'Insert failed' }
+  }
+
+  // Write the v1 snapshot so the version history is complete from
+  // day one. A failure here is logged but does not roll back the
+  // definition: a missing v1 row only impairs the history view.
+  const { error: versionError } = await service
+    .from('strategy_definition_versions')
+    .insert({
+      tenant_id: ctx.tenantId,
+      strategy_definition_id: data.id,
+      version_n: 1,
+      name: finalName,
+      description: description ?? null,
+      definition: parsed as unknown as Record<string, unknown>,
+      schema_version: parsed.schema_version,
+      change_note: 'Initial version',
+      created_by: ctx.user.id,
+    })
+  if (versionError) {
+    console.warn(
+      `[strategy-definitions] v1 snapshot insert failed for ${data.id}: ${versionError.message}`,
+    )
   }
 
   revalidatePath('/settings')
@@ -135,6 +161,7 @@ export async function updateStrategyDefinitionAction(
     name?: string
     description?: string | null
     definitionJson?: unknown
+    change_note?: string | null
   },
 ): Promise<StrategyDefinitionActionResult> {
   const ctx = await resolveTenant()
@@ -144,9 +171,12 @@ export async function updateStrategyDefinitionAction(
 
   // Ownership check up front so we never even prepare an update
   // payload for a row that does not belong to the caller's tenant.
+  // We also fetch version_n + the current name/description/definition
+  // so we can write a snapshot row before persisting the new
+  // version.
   const { data: existing, error: lookupError } = await service
     .from('strategy_definitions')
-    .select('id, tenant_id')
+    .select('id, tenant_id, name, description, definition, schema_version, version_n')
     .eq('id', id)
     .eq('tenant_id', ctx.tenantId)
     .single()
@@ -162,11 +192,17 @@ export async function updateStrategyDefinitionAction(
     description?: string | null
     definition?: Record<string, unknown>
     schema_version?: number
+    version_n?: number
     updated_at: string
   } = { updated_at: new Date().toISOString() }
 
   if (patch.name !== undefined) update.name = patch.name.trim()
   if (patch.description !== undefined) update.description = patch.description
+
+  // Only bump version_n + write a snapshot when the JSON document
+  // actually changed. Pure name/description edits are tracked via
+  // updated_at but do not deserve a new version row.
+  let nextVersion = existing.version_n ?? 1
   if (patch.definitionJson !== undefined) {
     let parsed: StrategyDefinition
     try {
@@ -179,6 +215,8 @@ export async function updateStrategyDefinitionAction(
     }
     update.definition = parsed as unknown as Record<string, unknown>
     update.schema_version = parsed.schema_version
+    nextVersion = (existing.version_n ?? 1) + 1
+    update.version_n = nextVersion
   }
 
   const { data, error } = await service
@@ -190,6 +228,30 @@ export async function updateStrategyDefinitionAction(
     .single()
   if (error || !data) {
     return { ok: false, message: error?.message ?? 'Update failed' }
+  }
+
+  // Snapshot the new version after the row write succeeds. Same
+  // approach as create: a snapshot failure logs but does not undo
+  // the update.
+  if (patch.definitionJson !== undefined) {
+    const { error: versionError } = await service
+      .from('strategy_definition_versions')
+      .insert({
+        tenant_id: ctx.tenantId,
+        strategy_definition_id: id,
+        version_n: nextVersion,
+        name: data.name,
+        description: data.description,
+        definition: data.definition,
+        schema_version: data.schema_version,
+        change_note: patch.change_note ?? null,
+        created_by: ctx.user.id,
+      })
+    if (versionError) {
+      console.warn(
+        `[strategy-definitions] v${nextVersion} snapshot insert failed for ${id}: ${versionError.message}`,
+      )
+    }
   }
 
   revalidatePath('/settings')
@@ -349,6 +411,52 @@ export async function listStrategyDefinitionsAction(
   const { data, error } = await query
   if (error) return { ok: false, message: error.message }
   return { ok: true, rows: (data ?? []).map(rowToDomain) }
+}
+
+export type StrategyDefinitionVersionRow = {
+  id: string
+  strategy_definition_id: string
+  version_n: number
+  name: string
+  description: string | null
+  definition: StrategyDefinition
+  schema_version: number
+  change_note: string | null
+  created_by: string | null
+  created_at: string
+}
+
+export type StrategyDefinitionVersionsResult =
+  | { ok: true; rows: StrategyDefinitionVersionRow[] }
+  | { ok: false; message: string }
+
+export async function listStrategyDefinitionVersionsAction(
+  strategyDefinitionId: string,
+): Promise<StrategyDefinitionVersionsResult> {
+  const ctx = await resolveTenant()
+  if (!ctx.ok) return { ok: false, message: ctx.error }
+
+  const service = createServiceClient()
+  const { data, error } = await service
+    .from('strategy_definition_versions')
+    .select('*')
+    .eq('tenant_id', ctx.tenantId)
+    .eq('strategy_definition_id', strategyDefinitionId)
+    .order('version_n', { ascending: false })
+  if (error) return { ok: false, message: error.message }
+  const rows: StrategyDefinitionVersionRow[] = (data ?? []).map((r) => ({
+    id: r.id,
+    strategy_definition_id: r.strategy_definition_id,
+    version_n: r.version_n,
+    name: r.name,
+    description: r.description,
+    definition: r.definition as unknown as StrategyDefinition,
+    schema_version: r.schema_version,
+    change_note: r.change_note,
+    created_by: r.created_by,
+    created_at: r.created_at,
+  }))
+  return { ok: true, rows }
 }
 
 // Pure validation entry point used by the (forthcoming) composer

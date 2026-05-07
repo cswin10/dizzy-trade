@@ -218,7 +218,7 @@ export function AlertToast() {
                   )}
                 >
                   {toast.pnl == null
-                    ? '—'
+                    ? '-'
                     : `${toast.pnl >= 0 ? '+' : ''}${toast.pnl.toFixed(2)}`}
                 </span>
               </div>

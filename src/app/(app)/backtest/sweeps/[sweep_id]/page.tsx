@@ -33,7 +33,7 @@ const STATUS_BADGE: Record<string, string> = {
 }
 
 function formatGbp(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return '—'
+  if (value === null || !Number.isFinite(value)) return '-'
   const sign = value < 0 ? '-' : ''
   return `${sign}£${Math.abs(value).toLocaleString('en-GB', {
     maximumFractionDigits: 0,
@@ -199,7 +199,7 @@ export default async function SweepResultPage({
             />
             <Card
               label="Best by PnL"
-              value={bestByPnl ? `${formatGbp(bestByPnl.total_pnl_gbp)}` : '—'}
+              value={bestByPnl ? `${formatGbp(bestByPnl.total_pnl_gbp)}` : '-'}
               detail={
                 bestByPnl
                   ? describeCombo(bestByPnl.combination_values)
@@ -211,7 +211,7 @@ export default async function SweepResultPage({
               value={
                 bestBySharpe && bestBySharpe.sharpe_ratio != null
                   ? bestBySharpe.sharpe_ratio.toFixed(2)
-                  : '—'
+                  : '-'
               }
               detail={
                 bestBySharpe

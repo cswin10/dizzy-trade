@@ -17,7 +17,14 @@ export type OrderStatus =
   | { kind: 'open'; order_id: string; remaining_size: number }
   | { kind: 'filled'; order_id: string; fill_price: number; filled_at: Date }
   | { kind: 'cancelled'; order_id: string; cancelled_at: Date }
+  // Hyperliquid actively reports the order does not exist on the
+  // exchange. Distinct from 'error' so the monitor tick can move
+  // the signal to a terminal state instead of polling forever.
   | { kind: 'unknown'; order_id: string }
+  // Network / SDK / unexpected error fetching the status. Caller
+  // should log and continue rather than treating the order as
+  // open or unknown.
+  | { kind: 'error'; order_id: string; message: string }
 
 export type PlaceLimitOrderInput = {
   client_order_id: string
@@ -55,10 +62,30 @@ export type CancelOrderInput = {
 
 export type CancelAllInput = {
   pair?: string
+  // Optional whitelist of client order ids to cancel. When set,
+  // the client only cancels orders whose cloid appears in the
+  // list, leaving manual orders on the master account untouched.
+  // Used by the kill switch and the per-deployment pause path so
+  // pulling the trigger on Dizzy does not also cancel orders the
+  // user placed by hand on the Hyperliquid UI.
+  cloid_whitelist?: ReadonlySet<string>
 }
 
 export type OrderResult =
-  | { ok: true; order_id: string; placed_at: Date }
+  | {
+      ok: true
+      order_id: string
+      placed_at: Date
+      // Hyperliquid trigger orders sometimes return
+      // 'waitingForTrigger' instead of an oid. The client
+      // synthesises an order_id like 'pending:stop:<ts>' in that
+      // case and surfaces this flag so the caller (the pipeline)
+      // knows to persist the cloid alongside, and the monitor
+      // tick knows to resolve a real oid via cloid before reading
+      // status. Always-false / undefined for non-synthetic results.
+      cloid_only?: true
+      cloid?: string
+    }
   | { ok: false; reason: string }
 
 export type CancelResult =
@@ -118,6 +145,14 @@ export interface ExchangeClient {
   cancelOrder(input: CancelOrderInput): Promise<CancelResult>
   cancelAllOrders(input: CancelAllInput): Promise<CancelAllResult>
   getOrderStatus(order_id: string): Promise<OrderStatus>
+  // Resolves a cloid to a numeric oid by walking the master
+  // account's open-orders feed. Returns null when the cloid is
+  // not in the open list (could mean it triggered + filled, or
+  // was cancelled, or never placed). Optional on the interface
+  // because the mock client returns null and the live caller
+  // only invokes it when an exchange_*_order_id starts with
+  // 'pending:'.
+  resolveOidByCloid?(cloid: string): Promise<number | null>
   getOpenPositions(): Promise<Position[]>
   getAccountState(): Promise<AccountState>
 }

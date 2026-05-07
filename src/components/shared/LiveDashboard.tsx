@@ -89,7 +89,7 @@ export type LiveDashboardProps = {
 }
 
 function formatGbp(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) return '—'
+  if (value == null || !Number.isFinite(value)) return '-'
   const sign = value < 0 ? '-' : value > 0 ? '+' : ''
   return `${sign}£${Math.abs(value).toLocaleString('en-GB', {
     maximumFractionDigits: 0,
@@ -97,14 +97,14 @@ function formatGbp(value: number | null | undefined): string {
 }
 
 function formatNumber(value: number | string | null | undefined, digits = 2): string {
-  if (value == null) return '—'
+  if (value == null) return '-'
   const n = typeof value === 'string' ? Number(value) : value
-  if (!Number.isFinite(n)) return '—'
+  if (!Number.isFinite(n)) return '-'
   return n.toFixed(digits)
 }
 
 function formatTime(iso: string | null): string {
-  if (!iso) return '—'
+  if (!iso) return '-'
   return new Date(iso).toLocaleString('en-GB', {
     day: '2-digit',
     month: 'short',

@@ -160,7 +160,7 @@ function LiveStatusPill({ status }: { status: Trade['live_status'] }) {
 }
 
 function priceFormat(value: number | null): string {
-  if (value === null || value === undefined) return '—'
+  if (value === null || value === undefined) return '-'
   return value.toLocaleString('en-GB', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 6,
@@ -168,7 +168,7 @@ function priceFormat(value: number | null): string {
 }
 
 function sizeFormat(value: number | null): string {
-  if (value === null || value === undefined) return '—'
+  if (value === null || value === undefined) return '-'
   return value.toLocaleString('en-GB', {
     minimumFractionDigits: 0,
     maximumFractionDigits: 6,

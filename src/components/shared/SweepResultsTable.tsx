@@ -57,7 +57,7 @@ type SortKey =
 type SortDir = 'asc' | 'desc'
 
 function formatGbp(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return '—'
+  if (value === null || !Number.isFinite(value)) return '-'
   const sign = value < 0 ? '-' : ''
   return `${sign}£${Math.abs(value).toLocaleString('en-GB', {
     maximumFractionDigits: 0,
@@ -65,12 +65,12 @@ function formatGbp(value: number | null): string {
 }
 
 function formatPct(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return '—'
+  if (value === null || !Number.isFinite(value)) return '-'
   return `${(value * 100).toFixed(1)}%`
 }
 
 function formatNumber(value: number | null, digits = 2): string {
-  if (value === null || !Number.isFinite(value)) return '—'
+  if (value === null || !Number.isFinite(value)) return '-'
   return value.toFixed(digits)
 }
 
@@ -78,7 +78,7 @@ function describeCombo(
   values: Record<string, number | string | boolean>,
 ): string {
   const entries = Object.entries(values)
-  if (entries.length === 0) return '—'
+  if (entries.length === 0) return '-'
   return entries
     .map(([key, value]) => {
       if (typeof value === 'number') {
@@ -235,7 +235,7 @@ export function SweepResultsTable({ rows, sweepId }: SweepResultsTableProps) {
                   {describeCombo(row.combination_values)}
                 </td>
                 <td className="px-3 py-2 text-right font-mono">
-                  {row.total_trades ?? '—'}
+                  {row.total_trades ?? '-'}
                 </td>
                 <td className="px-3 py-2 text-right font-mono">
                   {formatPct(row.win_rate)}

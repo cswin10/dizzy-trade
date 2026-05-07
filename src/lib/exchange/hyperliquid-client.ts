@@ -176,7 +176,7 @@ export class HyperliquidClient implements ExchangeClient {
         ],
         grouping: 'na',
       })
-      return interpretOrderResponse(result, 'limit')
+      return interpretOrderResponse(result, 'limit', cloid)
     } catch (error) {
       const message = errorMessage(error)
       return { ok: false, reason: `[${classifyError(message)}] ${message}` }
@@ -239,7 +239,7 @@ export class HyperliquidClient implements ExchangeClient {
         ],
         grouping: 'na',
       })
-      return interpretOrderResponse(result, tpsl === 'sl' ? 'stop' : 'tp')
+      return interpretOrderResponse(result, tpsl === 'sl' ? 'stop' : 'tp', cloid)
     } catch (error) {
       const message = errorMessage(error)
       return { ok: false, reason: `[${classifyError(message)}] ${message}` }
@@ -265,14 +265,21 @@ export class HyperliquidClient implements ExchangeClient {
   async cancelAllOrders(input: CancelAllInput): Promise<CancelAllResult> {
     // Hyperliquid does not expose a single "cancel everything"
     // call; we have to enumerate the open orders and cancel by
-    // order id. Filtering by pair when provided.
+    // order id. Filters: pair (when provided) and cloid_whitelist
+    // (so the kill switch only cancels orders Dizzy placed,
+    // leaving any manual orders on the master account intact).
     try {
       const open = await this.info.openOrders({
         user: this.masterAccountAddress,
       })
-      const filtered = input.pair
-        ? open.filter((o) => o.coin === input.pair)
-        : open
+      const filtered = open.filter((o) => {
+        if (input.pair && o.coin !== input.pair) return false
+        if (input.cloid_whitelist) {
+          if (!o.cloid) return false
+          if (!input.cloid_whitelist.has(o.cloid)) return false
+        }
+        return true
+      })
       if (filtered.length === 0) {
         return { ok: true, cancelled_order_ids: [] }
       }
@@ -351,12 +358,36 @@ export class HyperliquidClient implements ExchangeClient {
         remaining_size: Number(result.order.order.sz),
       }
     } catch (error) {
+      const message = errorMessage(error)
       console.error(
         '[hyperliquid] getOrderStatus error for',
         order_id,
+        message,
+      )
+      return { kind: 'error', order_id, message }
+    }
+  }
+
+  // Resolves a cloid to its real numeric oid by walking the
+  // master account's open-orders feed. Used by the monitor tick
+  // when a previous trigger placement returned 'waitingForTrigger'
+  // (no oid yet) and we still hold only the cloid. Returns null
+  // when the order is not in the open-orders list (could mean it
+  // already triggered and filled, was cancelled, or never placed).
+  async resolveOidByCloid(cloid: string): Promise<number | null> {
+    try {
+      const open = await this.info.openOrders({
+        user: this.masterAccountAddress,
+      })
+      const match = open.find((o) => o.cloid === cloid)
+      return match ? match.oid : null
+    } catch (error) {
+      console.error(
+        '[hyperliquid] resolveOidByCloid error for',
+        cloid,
         errorMessage(error),
       )
-      return { kind: 'unknown', order_id }
+      return null
     }
   }
 
@@ -491,17 +522,18 @@ function interpretOrderResponse(
     }
   },
   kind: 'limit' | 'stop' | 'tp',
+  cloid: string,
 ): OrderResult {
   const statuses = result?.response?.data?.statuses ?? []
   const first = statuses[0]
   if (first && typeof first === 'object') {
     if ('resting' in first) {
       const oid = (first as { resting: { oid: number } }).resting.oid
-      return { ok: true, order_id: String(oid), placed_at: new Date() }
+      return { ok: true, order_id: String(oid), placed_at: new Date(), cloid }
     }
     if ('filled' in first) {
       const oid = (first as { filled: { oid: number } }).filled.oid
-      return { ok: true, order_id: String(oid), placed_at: new Date() }
+      return { ok: true, order_id: String(oid), placed_at: new Date(), cloid }
     }
     if ('error' in first) {
       const message = String((first as { error: string }).error)
@@ -511,15 +543,19 @@ function interpretOrderResponse(
   if (typeof first === 'string') {
     if (first === 'waitingForTrigger' || first === 'waitingForFill') {
       // Trigger orders return 'waitingForTrigger' on placement.
-      // Treat as "successfully placed but not yet active" - the
-      // monitor tick will pick up the eventual fill via
-      // getOrderStatus on the cloid->oid mapping. For now we
-      // surface a synthetic order id derived from the cloid so
-      // the pipeline can find the order again.
+      // The exchange has accepted the order but no oid is
+      // assigned until the trigger fires. The cloid is the only
+      // stable handle we have until then, so we surface
+      // cloid_only=true and the pipeline persists the cloid into
+      // exchange_stop_cloid / exchange_target_cloid. The monitor
+      // tick resolves the real oid via info.orderStatus({user,
+      // cloid}) before treating the order as still-pending.
       return {
         ok: true,
         order_id: `pending:${kind}:${Date.now()}`,
         placed_at: new Date(),
+        cloid_only: true,
+        cloid,
       }
     }
   }

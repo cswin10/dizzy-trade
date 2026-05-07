@@ -36,7 +36,7 @@ function formatPct(value: number): string {
 }
 
 function formatNumber(value: number, digits = 2): string {
-  if (!Number.isFinite(value)) return '—'
+  if (!Number.isFinite(value)) return '-'
   return value.toFixed(digits)
 }
 
@@ -108,12 +108,12 @@ export function BacktestPerformanceByPairTable({
                   <td className="px-3 py-2 text-right font-mono text-red-200/85">
                     {row.max_drawdown_gbp !== undefined
                       ? formatGbp(-Math.abs(row.max_drawdown_gbp))
-                      : '—'}
+                      : '-'}
                   </td>
                   <td className="px-3 py-2 text-right font-mono">
                     {row.sharpe_ratio !== undefined
                       ? formatNumber(row.sharpe_ratio)
-                      : '—'}
+                      : '-'}
                   </td>
                   <td
                     className={`px-3 py-2 text-right font-mono ${
@@ -124,7 +124,7 @@ export function BacktestPerformanceByPairTable({
                   >
                     {row.best_trade_gbp !== undefined
                       ? formatGbp(row.best_trade_gbp)
-                      : '—'}
+                      : '-'}
                   </td>
                   <td
                     className={`px-3 py-2 text-right font-mono ${
@@ -135,12 +135,12 @@ export function BacktestPerformanceByPairTable({
                   >
                     {row.worst_trade_gbp !== undefined
                       ? formatGbp(row.worst_trade_gbp)
-                      : '—'}
+                      : '-'}
                   </td>
                   <td className="px-3 py-2 text-right font-mono">
                     {row.profit_factor === null ||
                     row.profit_factor === undefined
-                      ? '—'
+                      ? '-'
                       : formatNumber(row.profit_factor)}
                   </td>
                 </>

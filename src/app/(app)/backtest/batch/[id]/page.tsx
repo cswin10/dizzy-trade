@@ -26,7 +26,7 @@ const STATUS_BADGE: Record<string, string> = {
 }
 
 function formatDateTime(iso: string | null): string {
-  if (!iso) return '—'
+  if (!iso) return '-'
   return new Date(iso).toLocaleString('en-GB', {
     day: '2-digit',
     month: 'short',
@@ -91,14 +91,14 @@ export default async function BatchBacktestDetailPage({
       />
 
       <section className="mb-4 grid gap-3 rounded-lg border border-white/[0.06] bg-surface p-4 text-xs sm:grid-cols-3 lg:grid-cols-6">
-        <KV label="Pairs" value={(config.pairs ?? []).join(', ') || '—'} />
-        <KV label="Timeframe" value={config.timeframe ?? '—'} />
+        <KV label="Pairs" value={(config.pairs ?? []).join(', ') || '-'} />
+        <KV label="Timeframe" value={config.timeframe ?? '-'} />
         <KV
           label="Date range"
           value={
             config.date_range_start && config.date_range_end
               ? `${formatDateTime(config.date_range_start).slice(0, 11)} → ${formatDateTime(config.date_range_end).slice(0, 11)}`
-              : '—'
+              : '-'
           }
         />
         <KV
@@ -106,7 +106,7 @@ export default async function BatchBacktestDetailPage({
           value={
             config.starting_capital_gbp != null
               ? `£${config.starting_capital_gbp.toLocaleString('en-GB')}`
-              : '—'
+              : '-'
           }
         />
         <KV

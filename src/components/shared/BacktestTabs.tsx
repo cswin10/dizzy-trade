@@ -3,17 +3,18 @@ import Link from 'next/link'
 import { twMerge } from 'tailwind-merge'
 
 export type BacktestTabsProps = {
-  active: 'runs' | 'sweeps' | 'batches'
+  active: 'runs' | 'sweeps' | 'batches' | 'walk_forward'
 }
 
 const TABS: Array<{
-  key: 'runs' | 'sweeps' | 'batches'
+  key: 'runs' | 'sweeps' | 'batches' | 'walk_forward'
   label: string
   href: string
 }> = [
   { key: 'runs', label: 'Runs', href: '/backtest' },
   { key: 'sweeps', label: 'Sweeps', href: '/backtest/sweeps' },
   { key: 'batches', label: 'Batch comparisons', href: '/backtest/batch' },
+  { key: 'walk_forward', label: 'Walk-forward', href: '/backtest/walk-forward' },
 ]
 
 // Underline-style tabs above the runs and sweeps lists. Server

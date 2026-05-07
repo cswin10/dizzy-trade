@@ -492,6 +492,7 @@ export type Database = {
           max_concurrent_positions: number
           max_daily_loss_gbp: number | null
           max_consecutive_losers: number | null
+          version_n: number
         }
         Insert: {
           id?: string
@@ -509,6 +510,7 @@ export type Database = {
           max_concurrent_positions?: number
           max_daily_loss_gbp?: number | null
           max_consecutive_losers?: number | null
+          version_n?: number
         }
         Update: {
           id?: string
@@ -526,6 +528,49 @@ export type Database = {
           max_concurrent_positions?: number
           max_daily_loss_gbp?: number | null
           max_consecutive_losers?: number | null
+          version_n?: number
+        }
+        Relationships: []
+      }
+      strategy_definition_versions: {
+        Row: {
+          id: string
+          tenant_id: string
+          strategy_definition_id: string
+          version_n: number
+          name: string
+          description: string | null
+          definition: Record<string, unknown>
+          schema_version: number
+          change_note: string | null
+          created_by: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          tenant_id: string
+          strategy_definition_id: string
+          version_n: number
+          name: string
+          description?: string | null
+          definition: Record<string, unknown>
+          schema_version: number
+          change_note?: string | null
+          created_by?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          tenant_id?: string
+          strategy_definition_id?: string
+          version_n?: number
+          name?: string
+          description?: string | null
+          definition?: Record<string, unknown>
+          schema_version?: number
+          change_note?: string | null
+          created_by?: string | null
+          created_at?: string
         }
         Relationships: []
       }
@@ -817,6 +862,7 @@ export type Database = {
           resumed_at: string | null
           archived_at: string | null
           status: 'live' | 'paused' | 'archived'
+          deployed_strategy_version: number | null
         }
         Insert: {
           id?: string
@@ -838,6 +884,7 @@ export type Database = {
           resumed_at?: string | null
           archived_at?: string | null
           status?: 'live' | 'paused' | 'archived'
+          deployed_strategy_version?: number | null
         }
         Update: {
           id?: string
@@ -859,6 +906,7 @@ export type Database = {
           resumed_at?: string | null
           archived_at?: string | null
           status?: 'live' | 'paused' | 'archived'
+          deployed_strategy_version?: number | null
         }
         Relationships: []
       }
@@ -893,6 +941,7 @@ export type Database = {
             | 'skipped_daily_loss'
             | 'skipped_consecutive_losers'
             | 'skipped_safety_limit'
+            | 'safety_rejected'
             | 'failed'
           confirmed_at: string | null
           confirmation_source: 'telegram' | 'app' | 'auto' | null
@@ -912,6 +961,9 @@ export type Database = {
           telegram_sent_at: string | null
           telegram_message_id: string | null
           cloid: string | null
+          exchange_stop_cloid: string | null
+          exchange_target_cloid: string | null
+          requires_manual_confirmation: boolean
           failure_reason: string | null
           created_at: string
           updated_at: string
@@ -946,6 +998,7 @@ export type Database = {
             | 'skipped_daily_loss'
             | 'skipped_consecutive_losers'
             | 'skipped_safety_limit'
+            | 'safety_rejected'
             | 'failed'
           confirmed_at?: string | null
           confirmation_source?: 'telegram' | 'app' | 'auto' | null
@@ -965,6 +1018,9 @@ export type Database = {
           telegram_sent_at?: string | null
           telegram_message_id?: string | null
           cloid?: string | null
+          exchange_stop_cloid?: string | null
+          exchange_target_cloid?: string | null
+          requires_manual_confirmation?: boolean
           failure_reason?: string | null
           created_at?: string
           updated_at?: string
@@ -999,6 +1055,7 @@ export type Database = {
             | 'skipped_daily_loss'
             | 'skipped_consecutive_losers'
             | 'skipped_safety_limit'
+            | 'safety_rejected'
             | 'failed'
           confirmed_at?: string | null
           confirmation_source?: 'telegram' | 'app' | 'auto' | null
@@ -1018,6 +1075,9 @@ export type Database = {
           telegram_sent_at?: string | null
           telegram_message_id?: string | null
           cloid?: string | null
+          exchange_stop_cloid?: string | null
+          exchange_target_cloid?: string | null
+          requires_manual_confirmation?: boolean
           failure_reason?: string | null
           created_at?: string
           updated_at?: string
@@ -1285,6 +1345,54 @@ export type Database = {
           in_train_period?: boolean | null
           conditions_at_signal?: Record<string, unknown> | null
           gbp_usd_rate_used?: number | null
+        }
+        Relationships: []
+      }
+      walk_forward_runs: {
+        Row: {
+          id: string
+          tenant_id: string
+          user_id: string
+          strategy_id: string
+          parent_config: Record<string, unknown>
+          window_size_days: number
+          step_size_days: number
+          status: 'queued' | 'running' | 'complete' | 'failed'
+          child_run_ids: string[]
+          summary: Record<string, unknown> | null
+          error_message: string | null
+          created_at: string
+          completed_at: string | null
+        }
+        Insert: {
+          id?: string
+          tenant_id: string
+          user_id: string
+          strategy_id: string
+          parent_config: Record<string, unknown>
+          window_size_days: number
+          step_size_days: number
+          status?: 'queued' | 'running' | 'complete' | 'failed'
+          child_run_ids?: string[]
+          summary?: Record<string, unknown> | null
+          error_message?: string | null
+          created_at?: string
+          completed_at?: string | null
+        }
+        Update: {
+          id?: string
+          tenant_id?: string
+          user_id?: string
+          strategy_id?: string
+          parent_config?: Record<string, unknown>
+          window_size_days?: number
+          step_size_days?: number
+          status?: 'queued' | 'running' | 'complete' | 'failed'
+          child_run_ids?: string[]
+          summary?: Record<string, unknown> | null
+          error_message?: string | null
+          created_at?: string
+          completed_at?: string | null
         }
         Relationships: []
       }

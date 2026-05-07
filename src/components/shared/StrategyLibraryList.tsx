@@ -33,7 +33,7 @@ const FILTER_OPTIONS: Array<{ value: Filter; label: string }> = [
 ]
 
 function formatDate(iso: string | null): string {
-  if (!iso) return '—'
+  if (!iso) return '-'
   return new Date(iso).toLocaleString('en-GB', {
     day: '2-digit',
     month: 'short',

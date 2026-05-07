@@ -20,7 +20,7 @@ export type BacktestTrainTestPanelProps = {
 const MIN_TRADES_FOR_SPLIT_VERDICT = 5
 
 function formatGbp(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return '—'
+  if (value === null || !Number.isFinite(value)) return '-'
   const sign = value < 0 ? '-' : ''
   return `${sign}£${Math.abs(value).toLocaleString('en-GB', {
     maximumFractionDigits: 0,
@@ -28,12 +28,12 @@ function formatGbp(value: number | null): string {
 }
 
 function formatPct(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return '—'
+  if (value === null || !Number.isFinite(value)) return '-'
   return `${(value * 100).toFixed(1)}%`
 }
 
 function formatNumber(value: number | null, digits = 2): string {
-  if (value === null || !Number.isFinite(value)) return '—'
+  if (value === null || !Number.isFinite(value)) return '-'
   return value.toFixed(digits)
 }
 

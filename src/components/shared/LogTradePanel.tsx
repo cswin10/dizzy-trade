@@ -558,7 +558,7 @@ function CloseTradeForm({
         <div className="rounded-md border border-white/[0.06] bg-surface-2 px-4 py-3">
           <div className="flex items-center justify-between text-sm">
             <span className="font-medium text-white">
-              {prefill.asset_symbol ?? '—'}
+              {prefill.asset_symbol ?? '-'}
             </span>
             <span
               className={twMerge(
@@ -572,8 +572,8 @@ function CloseTradeForm({
             </span>
           </div>
           <div className="mt-2 flex items-center gap-4 text-xs text-white/55">
-            <span>Entry · {prefill.entry_price ?? '—'}</span>
-            <span>Size · {prefill.entry_size ?? '—'}</span>
+            <span>Entry · {prefill.entry_price ?? '-'}</span>
+            <span>Size · {prefill.entry_size ?? '-'}</span>
             {prefill.venue ? <span>Venue · {prefill.venue}</span> : null}
           </div>
         </div>

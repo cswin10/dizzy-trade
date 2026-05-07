@@ -36,7 +36,7 @@ const statusClass: Record<BacktestRunSummary['status'], string> = {
 }
 
 function formatGbp(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return '—'
+  if (value === null || !Number.isFinite(value)) return '-'
   const sign = value < 0 ? '-' : ''
   return `${sign}£${Math.abs(value).toLocaleString('en-GB', {
     maximumFractionDigits: 0,
@@ -44,7 +44,7 @@ function formatGbp(value: number | null): string {
 }
 
 function formatPct(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return '—'
+  if (value === null || !Number.isFinite(value)) return '-'
   return `${(value * 100).toFixed(1)}%`
 }
 
@@ -144,10 +144,10 @@ export function BacktestRunsList({ runs }: { runs: BacktestRunSummary[] }) {
             <div className="hidden items-center gap-6 text-xs text-white/65 sm:flex">
               <Stat
                 label="Trades"
-                value={run.total_trades?.toString() ?? '—'}
+                value={run.total_trades?.toString() ?? '-'}
               />
               <Stat label="Win" value={formatPct(run.win_rate)} />
-              <Stat label="Avg R" value={run.avg_r?.toFixed(2) ?? '—'} />
+              <Stat label="Avg R" value={run.avg_r?.toFixed(2) ?? '-'} />
               <Stat label="PnL" value={formatGbp(run.total_pnl_gbp)} />
             </div>
             <button

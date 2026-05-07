@@ -149,6 +149,10 @@ export async function fireTestSignalAction(
       intended_risk_gbp: intent.intended_risk_gbp,
       intended_rr: intent.intended_rr,
       status: 'pending_confirmation',
+      // Forward-looking flag from preflight. Manual confirm is
+      // currently the only path; auto-execute (Phase 2c) will
+      // read this column on every signal it considers.
+      requires_manual_confirmation: preflight.requires_manual_confirmation,
       notification_sent_at: new Date().toISOString(),
     })
     .select('id')
@@ -188,10 +192,51 @@ export async function confirmSignalAction(
     .from('strategy_deployments')
     .select('*')
     .eq('id', signal.deployment_id)
+    .eq('tenant_id', ctx.tenantId)
     .single()
   if (!deployment) {
     return { ok: false, message: 'Deployment not found' }
   }
+  // Re-run preflight (which itself runs the hardcoded safety
+  // caps first) before any state transition. Between fire time
+  // and confirm time the global state can have shifted: another
+  // deployment can have opened a position, the rolling 24h loss
+  // can have ticked over the cap, the deployment can have been
+  // paused. The signal carries the already-sized intent so we
+  // reconstruct it from the persisted columns rather than
+  // re-deriving sizing.
+  const intent: SignalIntent = {
+    pair: signal.pair,
+    direction: signal.direction,
+    signal_at: new Date(signal.signal_at),
+    signal_close_price: Number(signal.signal_close_price),
+    intended_entry_price: Number(signal.intended_entry_price),
+    intended_stop_price: Number(signal.intended_stop_price),
+    intended_target_price: Number(signal.intended_target_price),
+    intended_size_coin: Number(signal.intended_size_coin),
+    intended_size_usd: Number(signal.intended_size_usd),
+    intended_risk_gbp: Number(signal.intended_risk_gbp),
+    intended_rr: Number(signal.intended_rr),
+  }
+  const recheck = await preflightCheck(
+    service,
+    deployment,
+    signal.pair,
+    intent,
+  )
+  if (!recheck.ok) {
+    await service
+      .from('live_signals')
+      .update({
+        status: 'safety_rejected',
+        failure_reason: `confirm-time preflight: ${recheck.detail}`,
+      })
+      .eq('id', id)
+      .eq('status', 'pending_confirmation')
+    revalidatePath('/live')
+    return { ok: false, message: `Safety check rejected: ${recheck.detail}` }
+  }
+
   // Mark confirmed so a racing second confirmation no-ops.
   await service
     .from('live_signals')
@@ -314,6 +359,7 @@ export async function forceFillEntryAction(
     .from('live_signals')
     .select('exchange_order_id, intended_entry_price')
     .eq('id', signal_id)
+    .eq('tenant_id', ctx.tenantId)
     .single()
   if (!signal?.exchange_order_id) {
     return { ok: false, message: 'No exchange_order_id on signal' }
@@ -340,6 +386,7 @@ export async function forceTriggerStopAction(
     .from('live_signals')
     .select('exchange_stop_order_id, intended_stop_price')
     .eq('id', signal_id)
+    .eq('tenant_id', ctx.tenantId)
     .single()
   if (!signal?.exchange_stop_order_id) {
     return { ok: false, message: 'No stop order id on signal' }
@@ -366,6 +413,7 @@ export async function forceTriggerTargetAction(
     .from('live_signals')
     .select('exchange_target_order_id, intended_target_price')
     .eq('id', signal_id)
+    .eq('tenant_id', ctx.tenantId)
     .single()
   if (!signal?.exchange_target_order_id) {
     return { ok: false, message: 'No target order id on signal' }

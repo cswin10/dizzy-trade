@@ -70,19 +70,19 @@ function ContextCard({
         </span>
         <span className="font-mono text-[11px] tabular-nums text-white/55">
           {empty
-            ? '—'
+            ? '-'
             : `${bucket.total_trades} trade${bucket.total_trades === 1 ? '' : 's'}`}
         </span>
       </div>
       <div className="grid grid-cols-3 gap-3">
         <Metric
           label="Win rate"
-          value={empty ? '—' : `${Math.round(bucket.win_rate * 100)}%`}
+          value={empty ? '-' : `${Math.round(bucket.win_rate * 100)}%`}
         />
-        <Metric label="Avg R" value={empty ? '—' : formatRr(bucket.avg_r)} />
+        <Metric label="Avg R" value={empty ? '-' : formatRr(bucket.avg_r)} />
         <Metric
           label="PnL"
-          value={empty ? '—' : formatGbp(bucket.total_pnl_gbp)}
+          value={empty ? '-' : formatGbp(bucket.total_pnl_gbp)}
           tone={
             empty
               ? 'neutral'

@@ -25,7 +25,7 @@ export type SweepRunnerProps = {
 }
 
 function formatEta(remaining: number, msPerComplete: number): string {
-  if (!Number.isFinite(msPerComplete) || msPerComplete <= 0) return '—'
+  if (!Number.isFinite(msPerComplete) || msPerComplete <= 0) return '-'
   const totalMs = remaining * msPerComplete
   const minutes = Math.round(totalMs / 60000)
   if (minutes <= 0) return 'less than a minute'
@@ -100,7 +100,7 @@ export function SweepRunner({
         )
       : 0
 
-  let etaText = '—'
+  let etaText = '-'
   if (
     isActive &&
     runStartedAt &&
