@@ -5,16 +5,6 @@
 
 import type { BacktestMetrics, SimulatedTrade } from './types'
 
-const ANNUALISATION_FACTOR_BY_TIMEFRAME: Record<string, number> = {
-  '1m': 365 * 24 * 60,
-  '5m': 365 * 24 * 12,
-  '15m': 365 * 24 * 4,
-  '30m': 365 * 24 * 2,
-  '1h': 365 * 24,
-  '4h': 365 * 6,
-  '1d': 365,
-}
-
 function executedTrades(trades: SimulatedTrade[]): SimulatedTrade[] {
   return trades.filter((t) => t.exit_reason !== 'rules_blocked')
 }
@@ -32,9 +22,57 @@ function stddev(xs: number[]): number {
   return Math.sqrt(variance)
 }
 
+const MS_PER_DAY = 24 * 60 * 60 * 1000
+
+// Annualised Sharpe on a daily PnL series. Buckets per-trade pnl_gbp
+// by UTC exit day, zero-fills idle days inside the active range so a
+// sporadic strategy still has a realistic stddev, then computes
+// mean/stddev × sqrt(365). Crypto trades 24/7 so daily is the right
+// base regardless of candle timeframe — feeding per-trade R-multiples
+// straight into Sharpe with sqrt(8760) (the previous bug) inflated
+// hourly-strategy Sharpes by ~5x and was the headline finding of the
+// engine audit. The ratio is scale-invariant so daily pnl_gbp,
+// daily R, or daily USD all produce the same Sharpe.
+function annualisedDailySharpe(
+  trades: Array<{ exit_at: Date | null; pnl_gbp: number }>,
+): number {
+  const dated = trades.filter(
+    (t): t is { exit_at: Date; pnl_gbp: number } => t.exit_at != null,
+  )
+  if (dated.length < 2) return 0
+
+  let minMs = Infinity
+  let maxMs = -Infinity
+  const byDay = new Map<string, number>()
+  for (const t of dated) {
+    const at = t.exit_at.getTime()
+    if (at < minMs) minMs = at
+    if (at > maxMs) maxMs = at
+    const day = t.exit_at.toISOString().slice(0, 10)
+    byDay.set(day, (byDay.get(day) ?? 0) + t.pnl_gbp)
+  }
+  // Walk every UTC day from the earliest to the latest exit. Days
+  // with no trades land at 0 PnL.
+  const startDay = Math.floor(minMs / MS_PER_DAY) * MS_PER_DAY
+  const endDay = Math.floor(maxMs / MS_PER_DAY) * MS_PER_DAY
+  const dailyPnl: number[] = []
+  for (let cursor = startDay; cursor <= endDay; cursor += MS_PER_DAY) {
+    const day = new Date(cursor).toISOString().slice(0, 10)
+    dailyPnl.push(byDay.get(day) ?? 0)
+  }
+  if (dailyPnl.length < 2) return 0
+  const m = mean(dailyPnl)
+  const sd = stddev(dailyPnl)
+  if (sd <= 0) return 0
+  return (m / sd) * Math.sqrt(365)
+}
+
 export function computeMetrics(
   trades: SimulatedTrade[],
-  timeframe = '1h',
+  // Kept on the signature for caller compatibility; previously used
+  // by a per-timeframe annualisation factor that was wrong (see the
+  // annualisedDailySharpe comment). Daily Sharpe is timeframe-agnostic.
+  _timeframe = '1h',
 ): BacktestMetrics {
   const executed = executedTrades(trades)
   const total = executed.length
@@ -92,14 +130,7 @@ export function computeMetrics(
   }
   const maxDdPct = maxPeakSeen > 0 ? (maxDdGbp / maxPeakSeen) * 100 : 0
 
-  // Sharpe approximation. Per-trade returns are PnL / risk (i.e. R
-  // multiples). Multiply by sqrt(annualisation factor) so the value
-  // is roughly comparable to a daily-returns Sharpe. When variance
-  // is zero we leave Sharpe at 0 to avoid Infinity.
-  const meanR = mean(rValues)
-  const sdR = stddev(rValues)
-  const annualisation = ANNUALISATION_FACTOR_BY_TIMEFRAME[timeframe] ?? 365
-  const sharpe = sdR > 0 ? (meanR / sdR) * Math.sqrt(annualisation) : 0
+  const sharpe = annualisedDailySharpe(executed)
 
   let longestLosingStreak = 0
   let currentStreak = 0
