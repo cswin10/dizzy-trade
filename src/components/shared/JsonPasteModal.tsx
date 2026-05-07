@@ -9,6 +9,11 @@ import {
 } from '@/app/actions/strategy-definitions'
 import { Button } from '@/components/ui/Button'
 import { Dialog } from '@/components/ui/Dialog'
+import {
+  DEFAULT_STRATEGY_CATEGORY,
+  STRATEGY_CATEGORIES,
+  type StrategyCategory,
+} from '@/lib/strategies/categories'
 import type { StrategyDefinition } from '@/lib/strategies/types'
 
 export type JsonPasteModalProps = {
@@ -25,11 +30,15 @@ export function JsonPasteModal({ open, onClose }: JsonPasteModalProps) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [text, setText] = useState('')
+  const [category, setCategory] = useState<StrategyCategory>(
+    DEFAULT_STRATEGY_CATEGORY,
+  )
   const [errors, setErrors] = useState<string[]>([])
   const [parsed, setParsed] = useState<StrategyDefinition | null>(null)
 
   function reset() {
     setText('')
+    setCategory(DEFAULT_STRATEGY_CATEGORY)
     setErrors([])
     setParsed(null)
   }
@@ -59,6 +68,7 @@ export function JsonPasteModal({ open, onClose }: JsonPasteModalProps) {
         parsed.name,
         null,
         parsed,
+        category,
       )
       if (!result.ok) {
         setErrors([result.message ?? 'Save failed'])
@@ -108,6 +118,22 @@ export function JsonPasteModal({ open, onClose }: JsonPasteModalProps) {
         </>
       }
     >
+      <label className="mb-3 flex flex-col gap-1 text-xs text-white/45">
+        Category
+        <select
+          value={category}
+          onChange={(event) =>
+            setCategory(event.target.value as StrategyCategory)
+          }
+          className="h-9 rounded-md border border-white/10 bg-transparent px-2 text-sm text-white outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+        >
+          {STRATEGY_CATEGORIES.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+      </label>
       <textarea
         value={text}
         onChange={(event) => {
