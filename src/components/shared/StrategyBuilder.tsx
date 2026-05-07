@@ -39,6 +39,11 @@ import {
   type ParameterDescriptor,
   type RuleUIDescriptor,
 } from '@/lib/strategies/condition-ui-descriptors'
+import {
+  DEFAULT_STRATEGY_CATEGORY,
+  STRATEGY_CATEGORIES,
+  type StrategyCategory,
+} from '@/lib/strategies/categories'
 import type {
   Condition,
   EntryGroup,
@@ -63,6 +68,7 @@ export type StrategyBuilderProps = {
     max_daily_loss_gbp: number | null
     max_consecutive_losers: number | null
     definition: StrategyDefinition
+    category: StrategyCategory
   }
 }
 
@@ -108,6 +114,9 @@ export function StrategyBuilder({
 
   const [name, setName] = useState(initial?.name ?? 'New strategy')
   const [description, setDescription] = useState(initial?.description ?? '')
+  const [category, setCategory] = useState<StrategyCategory>(
+    initial?.category ?? DEFAULT_STRATEGY_CATEGORY,
+  )
   const [pairs, setPairs] = useState<string[]>(
     initial?.pairs && initial.pairs.length > 0 ? initial.pairs : ['BTC'],
   )
@@ -232,8 +241,14 @@ export function StrategyBuilder({
             name,
             description: description.trim().length > 0 ? description : null,
             definitionJson: definition,
+            category,
           })
-        : await createStrategyDefinitionAction(name, description, definition)
+        : await createStrategyDefinitionAction(
+            name,
+            description,
+            definition,
+            category,
+          )
       if (!result.ok) {
         setError(result.message)
         return
@@ -352,6 +367,21 @@ export function StrategyBuilder({
             value={name}
             onChange={(event) => setName(event.target.value)}
           />
+          <div className="mt-3">
+            <Select
+              label="Category"
+              value={category}
+              onChange={(event) =>
+                setCategory(event.target.value as StrategyCategory)
+              }
+            >
+              {STRATEGY_CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </Select>
+          </div>
           <label className="mt-3 flex flex-col gap-2 text-xs text-white/45">
             Description
             <textarea

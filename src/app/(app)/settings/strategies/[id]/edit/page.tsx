@@ -3,6 +3,10 @@ import { notFound, redirect } from 'next/navigation'
 import { PageContainer } from '@/components/shared/PageContainer'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { StrategyBuilder } from '@/components/shared/StrategyBuilder'
+import {
+  DEFAULT_STRATEGY_CATEGORY,
+  isStrategyCategory,
+} from '@/lib/strategies/categories'
 import type { StrategyDefinition } from '@/lib/strategies/types'
 import { createClient } from '@/lib/supabase/server'
 
@@ -57,6 +61,9 @@ export default async function EditStrategyPage({
               : Number(row.max_daily_loss_gbp),
           max_consecutive_losers: row.max_consecutive_losers,
           definition: row.definition as unknown as StrategyDefinition,
+          category: isStrategyCategory(row.category)
+            ? row.category
+            : DEFAULT_STRATEGY_CATEGORY,
         }}
       />
     </PageContainer>

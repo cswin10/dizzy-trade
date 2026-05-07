@@ -97,6 +97,7 @@ export default async function StrategyDetailPage({
                     : 'Draft'
             }
           />
+          <KV label="Category" value={row.category ?? 'Other'} />
           <KV label="Timeframe" value={row.timeframe} />
           <KV label="Pairs" value={(row.pairs ?? []).join(', ') || '-'} />
           <KV
