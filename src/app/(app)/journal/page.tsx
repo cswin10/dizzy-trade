@@ -89,26 +89,33 @@ export default async function JournalPage({
   } = await supabase.auth.getUser()
   if (!user) redirect('/sign-in')
 
-  const { data: memberships } = await supabase
-    .from('tenant_members')
-    .select('tenant_id')
-    .eq('user_id', user.id)
-    .limit(1)
-  const tenantId = memberships?.[0]?.tenant_id ?? ''
-
-  let query = supabase
+  // The tenant lookup and trades query are independent — RLS scopes
+  // trades to the caller automatically — so we fan them out in
+  // parallel rather than waiting on tenant_members first.
+  let tradesQuery = supabase
     .from('trades')
     .select('*')
     .order('entry_at', { ascending: false })
 
-  if (filters.narrative) query = query.eq('narrative_tag', filters.narrative)
-  if (filters.outcome !== 'all') query = query.eq('outcome', filters.outcome)
-  if (filters.lesson) query = query.eq('analysis_lesson_tag', filters.lesson)
+  if (filters.narrative)
+    tradesQuery = tradesQuery.eq('narrative_tag', filters.narrative)
+  if (filters.outcome !== 'all')
+    tradesQuery = tradesQuery.eq('outcome', filters.outcome)
+  if (filters.lesson)
+    tradesQuery = tradesQuery.eq('analysis_lesson_tag', filters.lesson)
   const cutoff = timeFilterCutoff(filters.time)
-  if (cutoff) query = query.gte('entry_at', cutoff.toISOString())
+  if (cutoff) tradesQuery = tradesQuery.gte('entry_at', cutoff.toISOString())
 
-  const { data: trades } = await query
-  const tradeRows = (trades ?? []) as Trade[]
+  const [membershipsRes, tradesRes] = await Promise.all([
+    supabase
+      .from('tenant_members')
+      .select('tenant_id')
+      .eq('user_id', user.id)
+      .limit(1),
+    tradesQuery,
+  ])
+  const tenantId = membershipsRes.data?.[0]?.tenant_id ?? ''
+  const tradeRows = (tradesRes.data ?? []) as Trade[]
 
   // Build the set of lesson tags that this tenant has actually used.
   // The dropdown is hidden until a meaningful sample exists.

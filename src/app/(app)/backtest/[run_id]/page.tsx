@@ -143,17 +143,35 @@ export default async function BacktestResultPage({
   } = await supabase.auth.getUser()
   if (!user) redirect('/sign-in')
 
-  const { data: run, error } = await supabase
-    .from('backtest_runs')
-    .select('*')
-    .eq('id', params.run_id)
-    .single()
+  // Run all four queries in parallel. Previously this page waited
+  // for run -> sweep -> trades -> analytics serially; on a slow
+  // Supabase connection that is four full round-trips before the
+  // operator sees anything. The sweep lookup can fan out before
+  // we know whether sweep_id is set; we just discard the result
+  // when it isn't, which is cheaper than the extra round-trip.
+  const analyticsStart = Date.now()
+  const [runRes, tradesRes, analyticsRes] = await Promise.all([
+    supabase
+      .from('backtest_runs')
+      .select('*')
+      .eq('id', params.run_id)
+      .single(),
+    supabase
+      .from('backtest_trades')
+      .select(
+        'id, pair, direction, entry_at, entry_price, stop_price, target_price, exit_at, exit_price, exit_reason, r_multiple, outcome, conditions_at_signal, pnl_gbp, in_train_period',
+      )
+      .eq('backtest_run_id', params.run_id)
+      .order('entry_at', { ascending: true }),
+    computeBacktestAnalyticsAction(params.run_id),
+  ])
+  const analyticsMs = Date.now() - analyticsStart
+  const { data: run, error } = runRes
   if (error || !run) notFound()
 
-  // If this run was produced by a sweep, fetch the sweep name so the
-  // header can render a breadcrumb pill linking back to it. Without
-  // this the operator drilling into a combination loses the parent
-  // context entirely.
+  // Resolve the sweep header pill (if any) after the parent run is
+  // known. This is one extra round-trip in the rare sweep case but
+  // keeps the common (non-sweep) path at three parallel queries.
   let parentSweep: { id: string; name: string } | null = null
   if (run.sweep_id) {
     const sweepRes = await supabase
@@ -165,14 +183,6 @@ export default async function BacktestResultPage({
       parentSweep = { id: sweepRes.data.id, name: sweepRes.data.name }
     }
   }
-
-  const tradesRes = await supabase
-    .from('backtest_trades')
-    .select(
-      'id, pair, direction, entry_at, entry_price, stop_price, target_price, exit_at, exit_price, exit_reason, r_multiple, outcome, conditions_at_signal, pnl_gbp, in_train_period',
-    )
-    .eq('backtest_run_id', params.run_id)
-    .order('entry_at', { ascending: true })
 
   const trades: BacktestTradeRow[] = (tradesRes.data ?? []).map((row) => ({
     id: row.id,
@@ -212,13 +222,6 @@ export default async function BacktestResultPage({
     equity.splitIndex = idx >= 0 ? idx : null
   }
   const distribution = buildDistribution(trades)
-  // Section B uses the extended per-pair shape from the analytics
-  // module; the basic buildPairBreakdown is no longer rendered.
-  // Computed in parallel with analytics so the page only pays one
-  // server-side latency cost for both.
-  const analyticsStart = Date.now()
-  const analyticsRes = await computeBacktestAnalyticsAction(params.run_id)
-  const analyticsMs = Date.now() - analyticsStart
   const analytics = analyticsRes.ok ? analyticsRes.data : null
   const pairBreakdown: PairPerformanceRow[] = analytics
     ? analytics.per_pair.map((p) => ({
