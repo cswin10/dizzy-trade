@@ -493,6 +493,14 @@ export type Database = {
           max_daily_loss_gbp: number | null
           max_consecutive_losers: number | null
           version_n: number
+          category:
+            | 'Momentum'
+            | 'Mean Reversion'
+            | 'Volatility'
+            | 'Breakout'
+            | 'Time-based'
+            | 'Funding'
+            | 'Other'
         }
         Insert: {
           id?: string
@@ -511,6 +519,14 @@ export type Database = {
           max_daily_loss_gbp?: number | null
           max_consecutive_losers?: number | null
           version_n?: number
+          category?:
+            | 'Momentum'
+            | 'Mean Reversion'
+            | 'Volatility'
+            | 'Breakout'
+            | 'Time-based'
+            | 'Funding'
+            | 'Other'
         }
         Update: {
           id?: string
@@ -529,6 +545,14 @@ export type Database = {
           max_daily_loss_gbp?: number | null
           max_consecutive_losers?: number | null
           version_n?: number
+          category?:
+            | 'Momentum'
+            | 'Mean Reversion'
+            | 'Volatility'
+            | 'Breakout'
+            | 'Time-based'
+            | 'Funding'
+            | 'Other'
         }
         Relationships: []
       }

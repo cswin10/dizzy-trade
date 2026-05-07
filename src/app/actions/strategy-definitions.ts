@@ -10,6 +10,11 @@ import '@/lib/strategies/register'
 import { revalidatePath } from 'next/cache'
 
 import {
+  DEFAULT_STRATEGY_CATEGORY,
+  isStrategyCategory,
+  type StrategyCategory,
+} from '@/lib/strategies/categories'
+import {
   tryValidateStrategyDefinition,
   validateStrategyDefinition,
 } from '@/lib/strategies/schema'
@@ -28,6 +33,7 @@ export type StrategyDefinitionRow = {
   created_at: string | null
   updated_at: string | null
   version_n: number
+  category: StrategyCategory
 }
 
 export type StrategyDefinitionActionResult =
@@ -70,6 +76,7 @@ function rowToDomain(row: {
   created_at: string | null
   updated_at: string | null
   version_n?: number | null
+  category?: string | null
 }): StrategyDefinitionRow {
   return {
     id: row.id,
@@ -85,6 +92,9 @@ function rowToDomain(row: {
     created_at: row.created_at,
     updated_at: row.updated_at,
     version_n: row.version_n ?? 1,
+    category: isStrategyCategory(row.category)
+      ? row.category
+      : DEFAULT_STRATEGY_CATEGORY,
   }
 }
 
@@ -92,6 +102,7 @@ export async function createStrategyDefinitionAction(
   name: string,
   description: string | null,
   definitionJson: unknown,
+  category: StrategyCategory = DEFAULT_STRATEGY_CATEGORY,
 ): Promise<StrategyDefinitionActionResult> {
   const ctx = await resolveTenant()
   if (!ctx.ok) return { ok: false, message: ctx.error }
@@ -122,6 +133,9 @@ export async function createStrategyDefinitionAction(
       schema_version: parsed.schema_version,
       is_archived: false,
       version_n: 1,
+      category: isStrategyCategory(category)
+        ? category
+        : DEFAULT_STRATEGY_CATEGORY,
     })
     .select('*')
     .single()
@@ -162,6 +176,7 @@ export async function updateStrategyDefinitionAction(
     description?: string | null
     definitionJson?: unknown
     change_note?: string | null
+    category?: StrategyCategory
   },
 ): Promise<StrategyDefinitionActionResult> {
   const ctx = await resolveTenant()
@@ -193,11 +208,20 @@ export async function updateStrategyDefinitionAction(
     definition?: Record<string, unknown>
     schema_version?: number
     version_n?: number
+    category?: StrategyCategory
     updated_at: string
   } = { updated_at: new Date().toISOString() }
 
   if (patch.name !== undefined) update.name = patch.name.trim()
   if (patch.description !== undefined) update.description = patch.description
+  // Category is a metadata edit, like name/description: it does not
+  // bump version_n and does not write a snapshot row.
+  if (patch.category !== undefined) {
+    if (!isStrategyCategory(patch.category)) {
+      return { ok: false, message: `Unknown category: ${patch.category}` }
+    }
+    update.category = patch.category
+  }
 
   // Only bump version_n + write a snapshot when the JSON document
   // actually changed. Pure name/description edits are tracked via
@@ -511,6 +535,10 @@ export type StrategyLibraryRow = {
   definition: StrategyDefinition | null
   // Framework-only.
   framework_id: string | null
+  // Composable rows carry a real category; framework rows fall
+  // back to the default so the filter UI can treat the field as
+  // always-present.
+  category: StrategyCategory
 }
 
 export type StrategyLibraryListResult =
@@ -562,6 +590,9 @@ export async function listAllStrategiesAction(): Promise<StrategyLibraryListResu
       updated_at: row.updated_at,
       definition: row.definition as unknown as StrategyDefinition,
       framework_id: null,
+      category: isStrategyCategory(row.category)
+        ? row.category
+        : DEFAULT_STRATEGY_CATEGORY,
     }),
   )
   const legacy: StrategyLibraryRow[] = (legacyRes.data ?? []).map((row) => ({
@@ -578,6 +609,7 @@ export async function listAllStrategiesAction(): Promise<StrategyLibraryListResu
     updated_at: row.updated_at,
     definition: null,
     framework_id: row.framework_id,
+    category: DEFAULT_STRATEGY_CATEGORY,
   }))
   // Active row first, then most-recently updated.
   const merged = [...composable, ...legacy].sort((a, b) => {

@@ -1,8 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { useMemo, useState, useTransition } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { useCallback, useMemo, useState, useTransition } from 'react'
 
 import { twMerge } from 'tailwind-merge'
 
@@ -14,23 +14,50 @@ import {
   type StrategyLibraryRow,
 } from '@/app/actions/strategy-definitions'
 import { toggleStrategyActiveAction } from '@/app/actions/strategies'
+import {
+  STRATEGY_CATEGORIES,
+  type StrategyCategory,
+} from '@/lib/strategies/categories'
 
-import { BatchSelectActionBar } from './BatchSelectActionBar'
 import { ConfirmDialog } from './ConfirmDialog'
 
 export type StrategyLibraryListProps = {
   rows: StrategyLibraryRow[]
 }
 
-type Filter = 'all' | 'composable' | 'framework' | 'active' | 'archived'
+type CategoryFilter = 'all' | StrategyCategory
+type StatusFilter = 'all' | 'live' | 'paused' | 'draft' | 'archived'
+type SortKey = 'newest' | 'oldest' | 'name_asc' | 'name_desc'
 
-const FILTER_OPTIONS: Array<{ value: Filter; label: string }> = [
-  { value: 'all', label: 'All' },
-  { value: 'composable', label: 'Composable only' },
-  { value: 'framework', label: 'Framework only' },
-  { value: 'active', label: 'Active only' },
+const STATUS_OPTIONS: Array<{ value: StatusFilter; label: string }> = [
+  { value: 'all', label: 'All statuses' },
+  { value: 'live', label: 'Live' },
+  { value: 'paused', label: 'Paused' },
+  { value: 'draft', label: 'Draft' },
   { value: 'archived', label: 'Archived' },
 ]
+
+const SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [
+  { value: 'newest', label: 'Newest first' },
+  { value: 'oldest', label: 'Oldest first' },
+  { value: 'name_asc', label: 'Name A-Z' },
+  { value: 'name_desc', label: 'Name Z-A' },
+]
+
+const CATEGORY_SET = new Set<string>(STRATEGY_CATEGORIES)
+const STATUS_SET = new Set<StatusFilter>([
+  'all',
+  'live',
+  'paused',
+  'draft',
+  'archived',
+])
+const SORT_SET = new Set<SortKey>([
+  'newest',
+  'oldest',
+  'name_asc',
+  'name_desc',
+])
 
 function formatDate(iso: string | null): string {
   if (!iso) return '-'
@@ -45,24 +72,56 @@ function formatDate(iso: string | null): string {
 
 export function StrategyLibraryList({ rows }: StrategyLibraryListProps) {
   const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
-  const [filter, setFilter] = useState<Filter>('all')
   const [error, setError] = useState<string | null>(null)
   const [pendingActivate, setPendingActivate] =
     useState<StrategyLibraryRow | null>(null)
   const [pendingDelete, setPendingDelete] = useState<StrategyLibraryRow | null>(
     null,
   )
-  // Select mode renders a checkbox per row and a sticky action
-  // bar at the bottom of the viewport. With one or more rows
-  // ticked the bar offers bulk Archive / Delete (composable only,
-  // matching the per-row controls); with two or more it also
-  // offers Run batch backtest. The /backtest/batch/new link
-  // receives the selection via query params.
-  const [compareMode, setCompareMode] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [pendingBulkDelete, setPendingBulkDelete] = useState(false)
   const [pendingBulkArchive, setPendingBulkArchive] = useState(false)
+
+  // Filter state lives in the URL so a hunting session is bookmarkable
+  // and survives a full page refresh. We read once per render rather
+  // than holding parallel useState — the URL is the source of truth.
+  const search = (searchParams.get('q') ?? '').trim()
+  const categoryParam = searchParams.get('category')
+  const category: CategoryFilter =
+    categoryParam && CATEGORY_SET.has(categoryParam)
+      ? (categoryParam as StrategyCategory)
+      : 'all'
+  const statusParam = (searchParams.get('status') ?? 'all') as StatusFilter
+  const status: StatusFilter = STATUS_SET.has(statusParam)
+    ? statusParam
+    : 'all'
+  const sortParam = (searchParams.get('sort') ?? 'newest') as SortKey
+  const sort: SortKey = SORT_SET.has(sortParam) ? sortParam : 'newest'
+  const hasActiveFilters =
+    search.length > 0 ||
+    category !== 'all' ||
+    status !== 'all' ||
+    sort !== 'newest'
+
+  const updateParam = useCallback(
+    (key: string, value: string | null) => {
+      const next = new URLSearchParams(searchParams.toString())
+      if (value === null || value === '') {
+        next.delete(key)
+      } else {
+        next.set(key, value)
+      }
+      const qs = next.toString()
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
+    },
+    [pathname, router, searchParams],
+  )
+
+  function clearFilters() {
+    router.replace(pathname, { scroll: false })
+  }
 
   function toggleRowSelected(row: StrategyLibraryRow) {
     const key = `${row.source}:${row.id}`
@@ -73,6 +132,7 @@ export function StrategyLibraryList({ rows }: StrategyLibraryListProps) {
       return next
     })
   }
+
   const selectedComposable = Array.from(selected)
     .filter((k) => k.startsWith('composable:'))
     .map((k) => k.slice('composable:'.length))
@@ -86,18 +146,61 @@ export function StrategyLibraryList({ rows }: StrategyLibraryListProps) {
   )
 
   const filtered = useMemo(() => {
-    return rows.filter((row) => {
-      if (filter === 'composable' && row.source !== 'composable') return false
-      if (filter === 'framework' && row.source !== 'framework') return false
-      if (filter === 'active' && !row.is_active) return false
-      if (filter === 'archived') {
-        return row.source === 'composable' && row.is_archived
+    const q = search.toLowerCase()
+    const out = rows.filter((row) => {
+      // Search across name + description (description is composable
+      // only; framework rows just match on name).
+      if (q.length > 0) {
+        const hay =
+          `${row.name} ${row.description ?? ''}`.toLowerCase()
+        if (!hay.includes(q)) return false
       }
-      // For non-archived filters, hide archived composable rows.
-      if (row.source === 'composable' && row.is_archived) return false
+      // Category filter only applies to composable rows since
+      // framework rows are forced to 'Other'. When the operator
+      // picks a non-Other category we hide framework rows
+      // entirely; for 'Other' or 'all' both sources show through.
+      if (category !== 'all') {
+        if (row.category !== category) return false
+      }
+      // Status mirrors deployment_status; 'archived' is a special
+      // case that also catches composable is_archived rows.
+      if (status === 'live' && !row.is_active) return false
+      if (status === 'paused' && row.deployment_status !== 'paused')
+        return false
+      if (status === 'draft' && row.deployment_status !== 'draft')
+        return false
+      if (status === 'archived') {
+        const archived =
+          row.is_archived || row.deployment_status === 'archived'
+        if (!archived) return false
+      } else {
+        // For non-archived filters, hide composable rows that have
+        // been soft-archived so the default view stays uncluttered.
+        if (row.source === 'composable' && row.is_archived) return false
+      }
       return true
     })
-  }, [rows, filter])
+    out.sort((a, b) => {
+      if (sort === 'name_asc') {
+        return a.name.localeCompare(b.name, 'en', { sensitivity: 'base' })
+      }
+      if (sort === 'name_desc') {
+        return b.name.localeCompare(a.name, 'en', { sensitivity: 'base' })
+      }
+      const at = a.updated_at
+        ? Date.parse(a.updated_at)
+        : a.created_at
+          ? Date.parse(a.created_at)
+          : 0
+      const bt = b.updated_at
+        ? Date.parse(b.updated_at)
+        : b.created_at
+          ? Date.parse(b.created_at)
+          : 0
+      return sort === 'oldest' ? at - bt : bt - at
+    })
+    return out
+  }, [rows, search, category, status, sort])
 
   function performActivate(row: StrategyLibraryRow) {
     setError(null)
@@ -163,30 +266,6 @@ export function StrategyLibraryList({ rows }: StrategyLibraryListProps) {
     })
   }
 
-  function performBulkDelete() {
-    setError(null)
-    const ids = [...selectedComposable]
-    if (ids.length === 0) {
-      setPendingBulkDelete(false)
-      return
-    }
-    startTransition(async () => {
-      const failures: string[] = []
-      for (const id of ids) {
-        const result = await deleteStrategyDefinitionAction(id)
-        if (!result.ok) failures.push(result.message ?? id)
-      }
-      setPendingBulkDelete(false)
-      setSelected(new Set())
-      if (failures.length > 0) {
-        setError(
-          `Deleted ${ids.length - failures.length} of ${ids.length}. ${failures.length} failed: ${failures[0]}`,
-        )
-      }
-      router.refresh()
-    })
-  }
-
   function performBulkArchive() {
     setError(null)
     const ids = [...selectedComposable]
@@ -230,72 +309,107 @@ export function StrategyLibraryList({ rows }: StrategyLibraryListProps) {
     )
   }
 
+  const archivableSelectedCount = selectedComposable.length
+
   return (
     <>
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        {FILTER_OPTIONS.map((option) => (
-          <button
-            key={option.value}
-            type="button"
-            onClick={() => setFilter(option.value)}
-            className={twMerge(
-              'rounded-full border px-3 py-1 text-xs transition-colors',
-              filter === option.value
-                ? 'border-accent bg-accent/15 text-white'
-                : 'border-white/10 text-white/55 hover:border-white/20 hover:text-white',
-            )}
-          >
-            {option.label}
-          </button>
-        ))}
-        <span className="ml-auto text-xs text-white/45">
-          {filtered.length} of {rows.length}
-        </span>
+      {/* Filters: search box + three dropdowns + clear. The grid
+          collapses to two columns on mobile so the row stays
+          legible without horizontal scroll. */}
+      <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-[minmax(0,1fr)_repeat(3,180px)_auto]">
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => updateParam('q', e.target.value || null)}
+          placeholder="Search name or description"
+          className="col-span-2 h-9 w-full rounded-md border border-white/10 bg-transparent px-3 text-sm text-white outline-none transition-colors focus:border-accent focus:ring-1 focus:ring-accent sm:col-span-1"
+        />
+        <select
+          value={category}
+          onChange={(e) =>
+            updateParam(
+              'category',
+              e.target.value === 'all' ? null : e.target.value,
+            )
+          }
+          className="h-9 rounded-md border border-white/10 bg-transparent px-2 text-sm text-white outline-none focus:border-accent"
+        >
+          <option value="all">All categories</option>
+          {STRATEGY_CATEGORIES.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+        <select
+          value={status}
+          onChange={(e) =>
+            updateParam(
+              'status',
+              e.target.value === 'all' ? null : e.target.value,
+            )
+          }
+          className="h-9 rounded-md border border-white/10 bg-transparent px-2 text-sm text-white outline-none focus:border-accent"
+        >
+          {STATUS_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+        <select
+          value={sort}
+          onChange={(e) =>
+            updateParam(
+              'sort',
+              e.target.value === 'newest' ? null : e.target.value,
+            )
+          }
+          className="h-9 rounded-md border border-white/10 bg-transparent px-2 text-sm text-white outline-none focus:border-accent"
+        >
+          {SORT_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
         <button
           type="button"
-          onClick={() => {
-            setCompareMode((v) => !v)
-            setSelected(new Set())
-          }}
-          className={twMerge(
-            'rounded-full border px-3 py-1 text-xs transition-colors',
-            compareMode
-              ? 'border-accent bg-accent/15 text-white'
-              : 'border-white/10 text-white/55 hover:border-white/20 hover:text-white',
-          )}
+          onClick={clearFilters}
+          disabled={!hasActiveFilters}
+          className="col-span-2 h-9 rounded-md border border-white/10 px-3 text-xs text-white/65 transition-colors hover:border-white/25 hover:text-white disabled:cursor-default disabled:opacity-40 disabled:hover:border-white/10 disabled:hover:text-white/65 sm:col-span-1"
         >
-          {compareMode ? 'Exit select mode' : 'Select'}
+          Clear filters
         </button>
-        {compareMode ? (
-          <button
-            type="button"
-            onClick={() => {
-              // Toggle: if every selectable visible row is already
-              // ticked, clear; otherwise select all of them. Archived
-              // rows stay disabled, mirroring the per-row checkbox.
-              const selectable = filtered.filter((r) => !r.is_archived)
-              const allTicked =
-                selectable.length > 0 &&
-                selectable.every((r) =>
-                  selected.has(`${r.source}:${r.id}`),
-                )
-              if (allTicked) {
-                setSelected(new Set())
-              } else {
-                setSelected(
-                  new Set(selectable.map((r) => `${r.source}:${r.id}`)),
-                )
-              }
-            }}
-            className="rounded-full border border-white/10 px-3 py-1 text-xs text-white/55 transition-colors hover:border-white/20 hover:text-white"
-          >
-            {filtered
-              .filter((r) => !r.is_archived)
-              .every((r) => selected.has(`${r.source}:${r.id}`)) &&
-            filtered.filter((r) => !r.is_archived).length > 0
-              ? 'Clear selection'
-              : 'Select all'}
-          </button>
+      </div>
+
+      <div className="mb-3 flex flex-wrap items-center gap-3 text-xs text-white/45">
+        <span>
+          {filtered.length} of {rows.length}
+        </span>
+        {selected.size > 0 ? (
+          <>
+            <span className="text-white/65">·</span>
+            <span className="text-white/65">{selected.size} selected</span>
+            <button
+              type="button"
+              onClick={() => setPendingBulkArchive(true)}
+              disabled={isPending || archivableSelectedCount === 0}
+              className="rounded-md border border-amber-400/30 bg-amber-400/10 px-3 py-1 text-xs text-amber-200 transition-colors hover:bg-amber-400/20 disabled:opacity-40"
+            >
+              Archive selected
+              {archivableSelectedCount !== selected.size
+                ? ` (${archivableSelectedCount})`
+                : ''}
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelected(new Set())}
+              className="text-xs text-white/45 hover:text-white"
+            >
+              Clear
+            </button>
+          </>
         ) : null}
       </div>
 
@@ -305,125 +419,145 @@ export function StrategyLibraryList({ rows }: StrategyLibraryListProps) {
         </div>
       ) : null}
 
-      <ul className={twMerge('flex flex-col gap-2', compareMode && 'pb-20')}>
-        {filtered.map((row) => (
-          <li
-            key={`${row.source}:${row.id}`}
-            className="flex items-center gap-3 rounded-lg border border-white/[0.06] bg-surface px-4 py-3 transition-colors hover:border-white/10 hover:bg-surface-2"
-          >
-            {compareMode ? (
+      <ul className="flex flex-col gap-2">
+        {filtered.map((row) => {
+          const key = `${row.source}:${row.id}`
+          const isComposable = row.source === 'composable'
+          const checkboxDisabled = !isComposable || row.is_archived
+          return (
+            <li
+              key={key}
+              className="flex items-center gap-3 rounded-lg border border-white/[0.06] bg-surface px-4 py-3 transition-colors hover:border-white/10 hover:bg-surface-2"
+            >
               <input
                 type="checkbox"
                 aria-label={`Select ${row.name}`}
-                checked={selected.has(`${row.source}:${row.id}`)}
+                checked={selected.has(key)}
                 onChange={() => toggleRowSelected(row)}
-                disabled={row.is_archived}
+                disabled={checkboxDisabled}
+                title={
+                  !isComposable
+                    ? 'Bulk archive is composable-only'
+                    : row.is_archived
+                      ? 'Already archived'
+                      : undefined
+                }
               />
-            ) : null}
-            <Link
-              href={
-                row.source === 'composable'
-                  ? `/settings/strategies/${row.id}`
-                  : `/settings`
-              }
-              className="flex flex-1 flex-col gap-1"
-            >
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-medium text-white">
-                  {row.name}
-                </span>
-                <span
-                  className={twMerge(
-                    'rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide',
-                    row.source === 'composable'
-                      ? 'bg-accent/15 text-accent'
-                      : 'bg-white/10 text-white/55',
-                  )}
-                >
-                  {row.source === 'composable' ? 'composable' : 'framework'}
-                </span>
+              <Link
+                href={
+                  isComposable
+                    ? `/settings/strategies/${row.id}`
+                    : `/settings`
+                }
+                className="flex flex-1 flex-col gap-1"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-medium text-white">
+                    {row.name}
+                  </span>
+                  <span
+                    className={twMerge(
+                      'rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide',
+                      isComposable
+                        ? 'bg-accent/15 text-accent'
+                        : 'bg-white/10 text-white/55',
+                    )}
+                  >
+                    {isComposable ? 'composable' : 'framework'}
+                  </span>
+                  {isComposable ? (
+                    <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-white/65">
+                      {row.category}
+                    </span>
+                  ) : null}
+                  {row.is_active ? (
+                    <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] uppercase tracking-wide text-emerald-300">
+                      live
+                    </span>
+                  ) : null}
+                  {row.deployment_status === 'paused' ? (
+                    <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] uppercase tracking-wide text-amber-300">
+                      paused
+                    </span>
+                  ) : null}
+                  {row.deployment_status === 'draft' && !row.is_active ? (
+                    <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-white/55">
+                      draft
+                    </span>
+                  ) : null}
+                  {row.is_archived ? (
+                    <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-white/45">
+                      archived
+                    </span>
+                  ) : null}
+                </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-white/45">
+                  <span>{row.timeframe}</span>
+                  <span>
+                    {row.pairs.slice(0, 4).join(', ')}
+                    {row.pairs.length > 4 ? ` +${row.pairs.length - 4}` : ''}
+                  </span>
+                  <span>Updated {formatDate(row.updated_at)}</span>
+                </div>
+              </Link>
+              <div className="flex items-center gap-2">
                 {row.is_active ? (
-                  <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] uppercase tracking-wide text-emerald-300">
-                    active
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => performDeactivate(row)}
+                    disabled={isPending}
+                    className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-40"
+                  >
+                    Deactivate
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setPendingActivate(row)}
+                    disabled={isPending || row.is_archived}
+                    className="rounded-md border border-white/10 px-2 py-1 text-xs text-white/65 transition-colors hover:border-accent/40 hover:text-accent disabled:opacity-40"
+                  >
+                    Activate
+                  </button>
+                )}
+                {isComposable ? (
+                  <Link
+                    href={`/settings/strategies/${row.id}/edit`}
+                    className="rounded-md border border-white/10 px-2 py-1 text-xs text-white/65 hover:border-white/25 hover:text-white"
+                  >
+                    Edit
+                  </Link>
                 ) : null}
-                {row.is_archived ? (
-                  <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-white/45">
-                    archived
-                  </span>
+                {isComposable && !row.is_archived ? (
+                  <button
+                    type="button"
+                    onClick={() => performArchive(row)}
+                    disabled={isPending}
+                    className="rounded-md border border-white/10 px-2 py-1 text-xs text-white/55 transition-colors hover:border-white/25 hover:text-white disabled:opacity-40"
+                  >
+                    Archive
+                  </button>
+                ) : null}
+                {isComposable ? (
+                  <button
+                    type="button"
+                    onClick={() => setPendingDelete(row)}
+                    disabled={isPending}
+                    className="rounded-md border border-white/10 px-2 py-1 text-xs text-white/55 transition-colors hover:border-red-500/40 hover:text-red-300 disabled:opacity-40"
+                  >
+                    Delete
+                  </button>
                 ) : null}
               </div>
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-white/45">
-                <span>{row.timeframe}</span>
-                <span>
-                  {row.pairs.slice(0, 4).join(', ')}
-                  {row.pairs.length > 4 ? ` +${row.pairs.length - 4}` : ''}
-                </span>
-                <span>Updated {formatDate(row.updated_at)}</span>
-              </div>
-            </Link>
-            <div className="flex items-center gap-2">
-              {row.is_active ? (
-                <button
-                  type="button"
-                  onClick={() => performDeactivate(row)}
-                  disabled={isPending}
-                  className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-40"
-                >
-                  Deactivate
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setPendingActivate(row)}
-                  disabled={isPending || row.is_archived}
-                  className="rounded-md border border-white/10 px-2 py-1 text-xs text-white/65 transition-colors hover:border-accent/40 hover:text-accent disabled:opacity-40"
-                >
-                  Activate
-                </button>
-              )}
-              {row.source === 'composable' ? (
-                <Link
-                  href={`/settings/strategies/${row.id}/edit`}
-                  className="rounded-md border border-white/10 px-2 py-1 text-xs text-white/65 hover:border-white/25 hover:text-white"
-                >
-                  Edit
-                </Link>
-              ) : null}
-              {row.source === 'composable' && !row.is_archived ? (
-                <button
-                  type="button"
-                  onClick={() => performArchive(row)}
-                  disabled={isPending}
-                  className="rounded-md border border-white/10 px-2 py-1 text-xs text-white/55 transition-colors hover:border-white/25 hover:text-white disabled:opacity-40"
-                >
-                  Archive
-                </button>
-              ) : null}
-              {row.source === 'composable' ? (
-                <button
-                  type="button"
-                  onClick={() => setPendingDelete(row)}
-                  disabled={isPending}
-                  className="rounded-md border border-white/10 px-2 py-1 text-xs text-white/55 transition-colors hover:border-red-500/40 hover:text-red-300 disabled:opacity-40"
-                >
-                  Delete
-                </button>
-              ) : null}
-            </div>
-          </li>
-        ))}
+            </li>
+          )
+        })}
       </ul>
 
-      {compareMode ? (
-        <BatchSelectActionBar
-          selectedComposable={selectedComposable}
-          selectedLegacy={selectedLegacy}
-          onClear={() => setSelected(new Set())}
-          onBulkArchive={() => setPendingBulkArchive(true)}
-          onBulkDelete={() => setPendingBulkDelete(true)}
-          busy={isPending}
-        />
+      {filtered.length === 0 ? (
+        <p className="mt-3 text-xs text-white/45">
+          No strategies match the current filters.
+        </p>
       ) : null}
 
       <ConfirmDialog
@@ -464,31 +598,18 @@ export function StrategyLibraryList({ rows }: StrategyLibraryListProps) {
       />
 
       <ConfirmDialog
-        open={pendingBulkDelete}
-        onClose={() => setPendingBulkDelete(false)}
-        onConfirm={performBulkDelete}
-        title={`Delete ${selectedComposable.length} ${selectedComposable.length === 1 ? 'strategy' : 'strategies'}?`}
-        message={
-          selectedLegacy.length > 0
-            ? `${selectedComposable.length} composable strategies will be removed permanently. ${selectedLegacy.length} framework strategies in the selection will be left alone (use the legacy editor in Settings to delete those). This cannot be undone.`
-            : 'These strategies will be removed permanently. This cannot be undone.'
-        }
-        confirmLabel={`Delete ${selectedComposable.length}`}
-        destructive
-        busy={isPending}
-      />
-
-      <ConfirmDialog
         open={pendingBulkArchive}
         onClose={() => setPendingBulkArchive(false)}
         onConfirm={performBulkArchive}
-        title={`Archive ${selectedComposable.length} ${selectedComposable.length === 1 ? 'strategy' : 'strategies'}?`}
+        title={`Archive ${archivableSelectedCount} ${
+          archivableSelectedCount === 1 ? 'strategy' : 'strategies'
+        }?`}
         message={
           selectedLegacy.length > 0
-            ? `${selectedComposable.length} composable strategies will be archived. ${selectedLegacy.length} framework strategies in the selection will be left alone.`
+            ? `${archivableSelectedCount} composable strategies will be archived. ${selectedLegacy.length} framework strategies in the selection will be left alone (use the legacy editor in Settings to archive those).`
             : 'These strategies will be archived. You can restore them from the Archived filter.'
         }
-        confirmLabel={`Archive ${selectedComposable.length}`}
+        confirmLabel={`Archive ${archivableSelectedCount}`}
         busy={isPending}
       />
     </>
