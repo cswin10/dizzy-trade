@@ -129,6 +129,15 @@ export function computeStrategyWarmup(
 const FRANKFURTER_URL = 'https://api.frankfurter.app'
 const GBP_USD_FALLBACK = 1.27
 
+// Cap position notional at 100x the risk amount. Without this, a
+// pathologically tight stop (e.g. perCoinRisk = $0.01 from a price
+// glitch or noisy framework signal) lets `sizeCoin = riskUsd /
+// perCoinRisk` blow up into a million-dollar position whose fees
+// and PnL bear no resemblance to anything tradeable on a real
+// exchange. Trades that would breach this land in blocked_signals
+// with a clear reason rather than executing.
+const MAX_NOTIONAL_MULTIPLIER = 100
+
 type OpenPosition = {
   pair: string
   direction: 'long' | 'short'
@@ -859,6 +868,43 @@ export async function runBacktest(
       gbpUsdRate,
     )
     if (!sizeResult) continue
+
+    // Notional sanity cap. perCoinRisk too small (very tight stop)
+    // would otherwise size a wildly oversized position; skip with a
+    // visible reason so the operator can see why the strategy
+    // appears to fire fewer trades than expected.
+    const notionalCapUsd =
+      MAX_NOTIONAL_MULTIPLIER * sizeResult.riskGbp * gbpUsdRate
+    if (sizeResult.sizeUsd > notionalCapUsd) {
+      state.signals_blocked += 1
+      state.blocked_signals.push({
+        pair: entry.pair,
+        direction,
+        entry_at: nextCandle.candle_open_at,
+        entry_price: fillPrice,
+        stop_price: stopPrice,
+        target_price: targetPrice,
+        exit_at: null,
+        exit_price: null,
+        exit_reason: 'rules_blocked',
+        size_coin: 0,
+        size_usd: 0,
+        pnl_usd: 0,
+        pnl_gbp: 0,
+        r_multiple: 0,
+        outcome: 'breakeven',
+        conditions_at_signal: {
+          ...signal.condition_values,
+          rules_violations: [
+            {
+              rule: 'notional_cap',
+              reason: `Sized notional $${sizeResult.sizeUsd.toFixed(0)} would exceed ${MAX_NOTIONAL_MULTIPLIER}× risk cap; stop distance too tight`,
+            },
+          ],
+        },
+      })
+      continue
+    }
 
     state.open_positions.set(entry.pair, {
       pair: entry.pair,

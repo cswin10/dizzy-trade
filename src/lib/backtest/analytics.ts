@@ -154,16 +154,48 @@ export type PairFullRow = {
   profit_factor: number | null
 }
 
-// Same annualisation factors as the engine's metrics module so
-// per-pair Sharpe is comparable to the headline Sharpe.
-const ANNUALISATION_FACTOR_BY_TIMEFRAME: Record<string, number> = {
-  '1m': 365 * 24 * 60,
-  '5m': 365 * 24 * 12,
-  '15m': 365 * 24 * 4,
-  '30m': 365 * 24 * 2,
-  '1h': 365 * 24,
-  '4h': 365 * 6,
-  '1d': 365,
+const MS_PER_DAY = 24 * 60 * 60 * 1000
+
+// Annualised Sharpe on a daily PnL series. Buckets pnl_gbp by UTC
+// exit day, zero-fills idle days inside the active range, then
+// computes mean/stddev × sqrt(365). Same implementation as the
+// engine's metrics module so the headline Sharpe and the per-pair /
+// combined-portfolio Sharpes here are directly comparable. Crypto
+// trades 24/7 so daily is the right base regardless of candle
+// timeframe — the previous per-timeframe annualisation factor
+// inflated hourly-strategy Sharpes by ~5x.
+function annualisedDailySharpe(
+  trades: Array<{ exit_at: Date | null; pnl_gbp: number | null }>,
+): number {
+  const dated: Array<{ exit_at: Date; pnl: number }> = []
+  for (const t of trades) {
+    if (t.exit_at == null) continue
+    dated.push({ exit_at: t.exit_at, pnl: t.pnl_gbp ?? 0 })
+  }
+  if (dated.length < 2) return 0
+
+  let minMs = Infinity
+  let maxMs = -Infinity
+  const byDay = new Map<string, number>()
+  for (const t of dated) {
+    const at = t.exit_at.getTime()
+    if (at < minMs) minMs = at
+    if (at > maxMs) maxMs = at
+    const day = t.exit_at.toISOString().slice(0, 10)
+    byDay.set(day, (byDay.get(day) ?? 0) + t.pnl)
+  }
+  const startDay = Math.floor(minMs / MS_PER_DAY) * MS_PER_DAY
+  const endDay = Math.floor(maxMs / MS_PER_DAY) * MS_PER_DAY
+  const dailyPnl: number[] = []
+  for (let cursor = startDay; cursor <= endDay; cursor += MS_PER_DAY) {
+    const day = new Date(cursor).toISOString().slice(0, 10)
+    dailyPnl.push(byDay.get(day) ?? 0)
+  }
+  if (dailyPnl.length < 2) return 0
+  const m = mean(dailyPnl)
+  const sd = stddev(dailyPnl)
+  if (sd <= 0) return 0
+  return (m / sd) * Math.sqrt(365)
 }
 
 function maxDrawdownGbp(orderedTrades: AnalyticsTrade[]): number {
@@ -181,7 +213,8 @@ function maxDrawdownGbp(orderedTrades: AnalyticsTrade[]): number {
 
 export function computePerPairFull(
   trades: AnalyticsTrade[],
-  timeframe: string,
+  // Kept for caller compatibility; daily Sharpe is timeframe-agnostic.
+  _timeframe: string,
 ): PairFullRow[] {
   const buckets = new Map<string, AnalyticsTrade[]>()
   for (const trade of executed(trades)) {
@@ -192,7 +225,6 @@ export function computePerPairFull(
     }
     bucket.push(trade)
   }
-  const annualisation = ANNUALISATION_FACTOR_BY_TIMEFRAME[timeframe] ?? 365
   const rows: PairFullRow[] = []
   buckets.forEach((bucketTrades, pair) => {
     const ordered = [...bucketTrades].sort(
@@ -222,9 +254,8 @@ export function computePerPairFull(
       }
       if (t.r_multiple != null) rs.push(t.r_multiple)
     }
-    const sdR = stddev(rs)
     const meanR = mean(rs)
-    const sharpe = sdR > 0 ? (meanR / sdR) * Math.sqrt(annualisation) : 0
+    const sharpe = annualisedDailySharpe(ordered)
     rows.push({
       pair,
       trades: bucketTrades.length,
@@ -743,7 +774,8 @@ export type RunWithTrades = {
 
 export function computeCombinedPortfolio(
   runs: RunWithTrades[],
-  timeframe: string,
+  // Kept for caller compatibility; daily Sharpe is timeframe-agnostic.
+  _timeframe: string,
 ): CombinedPortfolio | null {
   if (runs.length < 2) return null
   // Top three by total PnL. If two are tied the order is
@@ -764,18 +796,13 @@ export function computeCombinedPortfolio(
   let wins = 0
   let losses = 0
   let totalPnl = 0
-  const rs: number[] = []
   for (const t of merged) {
     totalPnl += t.pnl_gbp ?? 0
     if (t.outcome === 'win') wins += 1
     else if (t.outcome === 'loss') losses += 1
-    if (t.r_multiple != null) rs.push(t.r_multiple)
   }
   const dd = maxDrawdownGbp(merged)
-  const sdR = stddev(rs)
-  const meanR = mean(rs)
-  const annualisation = ANNUALISATION_FACTOR_BY_TIMEFRAME[timeframe] ?? 365
-  const sharpe = sdR > 0 ? (meanR / sdR) * Math.sqrt(annualisation) : 0
+  const sharpe = annualisedDailySharpe(merged)
 
   // Daily-equity curve: bucket pnl by exit date so the chart
   // overlay does not have N points per day.
