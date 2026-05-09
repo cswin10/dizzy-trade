@@ -117,20 +117,7 @@ async function fetchFundingHistoryPage(
     startTime: startTimeMs,
   }
   if (endTimeMs !== undefined) body.endTime = endTimeMs
-  console.log(
-    `[diag] POST ${HL_INFO_URL} body=${JSON.stringify(body)} ` +
-      `(startTime=${new Date(startTimeMs).toISOString()}` +
-      (endTimeMs !== undefined
-        ? ` endTime=${new Date(endTimeMs).toISOString()}`
-        : '') +
-      `)`,
-  )
   const raw = await hlPostInfo<RawFundingEntry[]>(body)
-  console.log(
-    `[diag] response coin=${coin} rawLength=${Array.isArray(raw) ? raw.length : 'NOT_ARRAY'} ` +
-      `firstEntry=${raw && raw[0] ? JSON.stringify(raw[0]) : 'none'} ` +
-      `lastEntry=${raw && raw.length > 0 ? JSON.stringify(raw[raw.length - 1]) : 'none'}`,
-  )
   return hlNormalise(raw)
 }
 
@@ -139,37 +126,15 @@ async function fetchFundingHistory(
   startTimeMs: number,
   endTimeMs: number = Date.now(),
 ): Promise<FundingRateEntry[]> {
-  console.log(
-    `[diag] fetchFundingHistory coin=${coin} ` +
-      `startTime=${new Date(startTimeMs).toISOString()} ` +
-      `endTime=${new Date(endTimeMs).toISOString()} ` +
-      `windowDays=${((endTimeMs - startTimeMs) / 86_400_000).toFixed(2)}`,
-  )
   const collected: FundingRateEntry[] = []
   const seen = new Set<number>()
   let cursor = startTimeMs
   for (let iter = 0; iter < 200; iter++) {
-    console.log(
-      `[diag] loop iter=${iter} coin=${coin} ` +
-        `cursor=${new Date(cursor).toISOString()} collectedSoFar=${collected.length}`,
-    )
     const page = await fetchFundingHistoryPage(coin, cursor, endTimeMs)
-    console.log(
-      `[diag] page iter=${iter} coin=${coin} pageLength=${page.length} ` +
-        `firstTime=${page[0] ? new Date(page[0].time).toISOString() : 'none'} ` +
-        `lastTime=${page.length > 0 ? new Date(page[page.length - 1]!.time).toISOString() : 'none'}`,
-    )
-    if (page.length === 0) {
-      console.log(`[diag] exit reason=empty_page iter=${iter} coin=${coin}`)
-      break
-    }
+    if (page.length === 0) break
     let advanced = false
-    let dupesInPage = 0
     for (const entry of page) {
-      if (seen.has(entry.time)) {
-        dupesInPage++
-        continue
-      }
+      if (seen.has(entry.time)) continue
       seen.add(entry.time)
       collected.push(entry)
       if (entry.time + 1 > cursor) {
@@ -177,34 +142,13 @@ async function fetchFundingHistory(
         advanced = true
       }
     }
-    console.log(
-      `[diag] post-merge iter=${iter} coin=${coin} ` +
-        `dupesInPage=${dupesInPage} advanced=${advanced} ` +
-        `newCursor=${new Date(cursor).toISOString()} ` +
-        `collectedTotal=${collected.length} pageLength=${page.length} pageLimit=${HL_PAGE_LIMIT}`,
-    )
-    if (page.length < HL_PAGE_LIMIT) {
-      console.log(
-        `[diag] exit reason=page_under_limit iter=${iter} coin=${coin} ` +
-          `pageLength=${page.length} < pageLimit=${HL_PAGE_LIMIT}`,
-      )
-      break
-    }
-    if (!advanced) {
-      console.log(`[diag] exit reason=no_advance iter=${iter} coin=${coin}`)
-      break
-    }
-    if (cursor >= endTimeMs) {
-      console.log(
-        `[diag] exit reason=cursor_past_end iter=${iter} coin=${coin}`,
-      )
-      break
-    }
+    // Hyperliquid caps fundingHistory at HL_PAGE_LIMIT entries per
+    // call; a short page means we have walked the whole window.
+    if (page.length < HL_PAGE_LIMIT) break
+    if (!advanced) break
+    if (cursor >= endTimeMs) break
     await hlSleep(HL_INTER_PAGE_DELAY_MS)
   }
-  console.log(
-    `[diag] fetchFundingHistory done coin=${coin} totalCollected=${collected.length}`,
-  )
   collected.sort((a, b) => a.time - b.time)
   return collected
 }
@@ -292,62 +236,12 @@ async function insertFundingRows(
   return inserted
 }
 
-async function probeRawFundingHistory(
-  coin: string,
-  startTimeMs: number,
-): Promise<void> {
-  // Independent raw probe per the user's suggestion: posts the
-  // simplest possible payload (startTime only, no endTime) and logs
-  // shape so we can compare what Hyperliquid actually returns
-  // against what the helper's pagination loop sees.
-  try {
-    const body = { type: 'fundingHistory', coin, startTime: startTimeMs }
-    console.log(`[probe] POST ${HL_INFO_URL} body=${JSON.stringify(body)}`)
-    const res = await fetch(HL_INFO_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    if (!res.ok) {
-      console.warn(`[probe] ${coin} HTTP ${res.status} ${res.statusText}`)
-      return
-    }
-    const json = (await res.json()) as RawFundingEntry[]
-    console.log(
-      `[probe] ${coin} rawLength=${Array.isArray(json) ? json.length : 'NOT_ARRAY'}`,
-    )
-    if (Array.isArray(json) && json.length > 0) {
-      console.log(`[probe] ${coin} first=${JSON.stringify(json[0])}`)
-      console.log(
-        `[probe] ${coin} last=${JSON.stringify(json[json.length - 1])}`,
-      )
-      // Sample a few middle entries so we can see the cadence.
-      const midIdx = Math.floor(json.length / 2)
-      console.log(
-        `[probe] ${coin} mid[${midIdx}]=${JSON.stringify(json[midIdx])}`,
-      )
-      // Compute time deltas between consecutive entries to verify
-      // the hourly cadence (or detect that we are receiving e.g. a
-      // sparse / aggregated subset).
-      const deltas: number[] = []
-      for (let i = 1; i < Math.min(json.length, 10); i++) {
-        deltas.push(json[i]!.time - json[i - 1]!.time)
-      }
-      console.log(`[probe] ${coin} firstDeltasMs=${JSON.stringify(deltas)}`)
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    console.warn(`[probe] ${coin} threw: ${message}`)
-  }
-}
-
 async function backfillCoin(
   coin: string,
   startTimeMs: number,
 ): Promise<CoinResult> {
   const result: CoinResult = { coin, fetched: 0, inserted: 0 }
   try {
-    await probeRawFundingHistory(coin, startTimeMs)
     const entries = await fetchFundingHistory(coin, startTimeMs)
     result.fetched = entries.length
     if (entries.length === 0) {
