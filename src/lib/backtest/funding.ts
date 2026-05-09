@@ -35,6 +35,11 @@ export async function loadFundingRates(
   endAt: Date,
 ): Promise<FundingRatePoint[]> {
   const service = createServiceClient()
+  console.log(
+    `[funding-diag] loadFundingRates query coin=${JSON.stringify(coin)} ` +
+      `coinLen=${coin.length} ` +
+      `from=${startAt.toISOString()} to=${endAt.toISOString()}`,
+  )
   const { data, error } = await service
     .from('funding_rates')
     .select('ts, rate, premium, interval_hours')
@@ -42,8 +47,49 @@ export async function loadFundingRates(
     .gte('ts', startAt.toISOString())
     .lte('ts', endAt.toISOString())
     .order('ts', { ascending: true })
-  if (error) throw new Error(`funding rate load failed: ${error.message}`)
-  return (data ?? []).map((row) => ({
+  if (error) {
+    console.error(
+      `[funding-diag] loadFundingRates ERROR coin=${coin} message=${error.message}`,
+    )
+    throw new Error(`funding rate load failed: ${error.message}`)
+  }
+  const rows = data ?? []
+  console.log(
+    `[funding-diag] loadFundingRates result coin=${coin} rowCount=${rows.length} ` +
+      `firstRowTs=${rows[0]?.ts ?? 'none'} ` +
+      `lastRowTs=${rows[rows.length - 1]?.ts ?? 'none'}`,
+  )
+  // Probe: if the filtered query returned zero, try an unfiltered
+  // count for the same coin so we can see whether the issue is the
+  // coin name (zero rows for any window) or the time window.
+  if (rows.length === 0) {
+    const probe = await service
+      .from('funding_rates')
+      .select('ts, coin', { count: 'exact', head: false })
+      .eq('coin', coin)
+      .order('ts', { ascending: false })
+      .limit(1)
+    console.log(
+      `[funding-diag] loadFundingRates probe coin=${coin} ` +
+        `unfilteredCount=${probe.count ?? 'null'} ` +
+        `latestRow=${JSON.stringify(probe.data?.[0] ?? null)} ` +
+        `probeError=${probe.error?.message ?? 'none'}`,
+    )
+    // Second probe: distinct coin names actually in the table.
+    const distinctProbe = await service
+      .from('funding_rates')
+      .select('coin')
+      .order('coin', { ascending: true })
+      .limit(50)
+    const distinctCoins = Array.from(
+      new Set((distinctProbe.data ?? []).map((r) => r.coin as string)),
+    )
+    console.log(
+      `[funding-diag] loadFundingRates distinct-coins-sample=${JSON.stringify(distinctCoins)} ` +
+        `distinctProbeError=${distinctProbe.error?.message ?? 'none'}`,
+    )
+  }
+  return rows.map((row) => ({
     ts: new Date(row.ts as string).getTime(),
     rate: Number(row.rate),
     premium: row.premium === null ? null : Number(row.premium),
