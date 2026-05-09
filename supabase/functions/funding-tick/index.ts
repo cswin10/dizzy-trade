@@ -9,10 +9,151 @@
 // scanner is rate-budget-constrained on a one-minute cadence and
 // funding rates only update hourly: there is no point hammering the
 // fundingHistory endpoint every minute for the same value.
+//
+// Self-contained: the Hyperliquid funding client is inlined below
+// rather than imported from _shared/ because the Supabase dashboard
+// deploy flow only ships this file. The Node mirror lives at
+// src/lib/hyperliquid_funding.ts and stays the source of truth for
+// shape parity.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.46.1'
 
-import { fetchRecentFunding } from '../_shared/hyperliquid_funding.ts'
+// --- Hyperliquid funding-rate client (inlined) ---------------------
+
+const HL_INFO_URL = 'https://api.hyperliquid.xyz/info'
+const HL_DEFAULT_TIMEOUT_MS = 10_000
+const HL_PAGE_LIMIT = 500
+const HL_INTER_PAGE_DELAY_MS = 80
+
+type FundingRateEntry = {
+  coin: string
+  rate: number
+  premium: number | null
+  time: number
+}
+
+type RawFundingEntry = {
+  coin: string
+  fundingRate: string | number
+  premium?: string | number | null
+  time: number
+}
+
+function hlToNumber(value: string | number | undefined | null): number {
+  if (value === undefined || value === null) return 0
+  const n = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(n) ? n : 0
+}
+
+function hlToNullableNumber(
+  value: string | number | undefined | null,
+): number | null {
+  if (value === undefined || value === null) return null
+  const n = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+function hlSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function hlPostInfo<T>(
+  body: Record<string, unknown>,
+  timeoutMs = HL_DEFAULT_TIMEOUT_MS,
+): Promise<T> {
+  async function once(): Promise<T> {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    try {
+      const res = await fetch(HL_INFO_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      })
+      if (!res.ok) {
+        throw new Error(`Hyperliquid ${res.status} ${res.statusText}`)
+      }
+      return (await res.json()) as T
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+  try {
+    return await once()
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(
+      `[hyperliquid_funding] first attempt failed: ${message} (retrying)`,
+    )
+    return await once()
+  }
+}
+
+function hlNormalise(entries: RawFundingEntry[]): FundingRateEntry[] {
+  return entries.map((e) => ({
+    coin: e.coin,
+    rate: hlToNumber(e.fundingRate),
+    premium: hlToNullableNumber(e.premium ?? null),
+    time: e.time,
+  }))
+}
+
+async function fetchFundingHistoryPage(
+  coin: string,
+  startTimeMs: number,
+  endTimeMs?: number,
+): Promise<FundingRateEntry[]> {
+  const body: Record<string, unknown> = {
+    type: 'fundingHistory',
+    coin,
+    startTime: startTimeMs,
+  }
+  if (endTimeMs !== undefined) body.endTime = endTimeMs
+  const raw = await hlPostInfo<RawFundingEntry[]>(body)
+  return hlNormalise(raw)
+}
+
+async function fetchFundingHistory(
+  coin: string,
+  startTimeMs: number,
+  endTimeMs: number = Date.now(),
+): Promise<FundingRateEntry[]> {
+  const collected: FundingRateEntry[] = []
+  const seen = new Set<number>()
+  let cursor = startTimeMs
+  for (let iter = 0; iter < 200; iter++) {
+    const page = await fetchFundingHistoryPage(coin, cursor, endTimeMs)
+    if (page.length === 0) break
+    let advanced = false
+    for (const entry of page) {
+      if (seen.has(entry.time)) continue
+      seen.add(entry.time)
+      collected.push(entry)
+      if (entry.time + 1 > cursor) {
+        cursor = entry.time + 1
+        advanced = true
+      }
+    }
+    if (page.length < HL_PAGE_LIMIT) break
+    if (!advanced) break
+    if (cursor >= endTimeMs) break
+    await hlSleep(HL_INTER_PAGE_DELAY_MS)
+  }
+  collected.sort((a, b) => a.time - b.time)
+  return collected
+}
+
+async function fetchRecentFunding(
+  coin: string,
+  lookbackHours = 4,
+): Promise<FundingRateEntry[]> {
+  const now = Date.now()
+  const startTimeMs = now - lookbackHours * 60 * 60 * 1000
+  return fetchFundingHistory(coin, startTimeMs, now)
+}
+
+// --- Tick handler --------------------------------------------------
 
 const DEFAULT_COINS = ['BTC', 'ETH', 'SOL']
 const LOOKBACK_HOURS = 4
