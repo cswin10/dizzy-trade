@@ -1,5 +1,5 @@
 // AUTO-GENERATED. Do not edit. Run `npm run bundle:scanner` to regenerate.
-// Generated: 2026-05-02T11:44:56.690Z
+// Generated: 2026-05-09T13:48:20.262Z
 //
 // Source files (in dependency order):
 //   supabase/functions/_shared/hyperliquid.ts
@@ -2285,14 +2285,14 @@ async function loadActiveStrategy(
       .select(
         'id, name, framework_id, timeframe, pair_symbols, risk_amount_gbp, min_rr, max_concurrent_positions, max_daily_loss_gbp, max_consecutive_losers',
       )
-      .eq('is_active', true)
+      .eq('deployment_status', 'live')
       .limit(1),
     supabase
       .from('strategy_definitions')
       .select(
         'id, tenant_id, name, definition, pairs, timeframe, max_concurrent_positions, max_daily_loss_gbp, max_consecutive_losers',
       )
-      .eq('is_active', true)
+      .eq('deployment_status', 'live')
       .eq('is_archived', false)
       .limit(1),
   ])
@@ -3263,14 +3263,19 @@ registerConditionEvaluator(TYPE__funding_threshold, (condition, context) => {
     comparator: 'lt' | 'lte' | 'gt' | 'gte'
     value: number
   }
-  // Backtest data does not include historical funding for now, so
-  // any strategy that depends on this condition simply will not
-  // trigger in backtest mode. Surface that explicitly so the
-  // operator can spot it in the conditions_at_signal jsonb.
+  // The live scanner always populates context.funding from the
+  // bulk market-data response. Only path that can land here with
+  // funding undefined is a market-data fetch failure: surface it
+  // explicitly so the alert UI shows missing_data rather than a
+  // false negative.
   if (context.funding === undefined || context.funding === null) {
     return {
       passed: false,
-      values: { value: null, missing_data: true },
+      values: {
+        value: null,
+        missing_data: true,
+        reason: 'no funding data',
+      },
     }
   }
   return {
@@ -3450,7 +3455,7 @@ type StrategyRow = {
   max_concurrent_positions: number
   max_daily_loss_gbp: number | null
   max_consecutive_losers: number | null
-  is_active: boolean
+  deployment_status: 'draft' | 'live' | 'paused' | 'archived'
 }
 
 type RulesState = {
@@ -3503,7 +3508,7 @@ async function loadUniverse(): Promise<UniverseRow[]> {
   const { data, error } = await client
     .from('universe')
     .select('symbol, coingecko_id, is_watchlist')
-    .eq('is_active', true)
+    .eq('deployment_status', 'live')
   if (error) throw new Error(`universe load failed: ${error.message}`)
   return (data ?? []) as UniverseRow[]
 }
@@ -3513,9 +3518,9 @@ async function loadActiveStrategies(): Promise<StrategyRow[]> {
   const { data, error } = await client
     .from('strategies')
     .select(
-      'id, name, framework_id, timeframe, pair_symbols, risk_amount_gbp, min_rr, max_concurrent_positions, max_daily_loss_gbp, max_consecutive_losers, is_active',
+      'id, name, framework_id, timeframe, pair_symbols, risk_amount_gbp, min_rr, max_concurrent_positions, max_daily_loss_gbp, max_consecutive_losers, deployment_status',
     )
-    .eq('is_active', true)
+    .eq('deployment_status', 'live')
   if (error) {
     throw new Error(`strategies load failed: ${error.message}`)
   }

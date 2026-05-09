@@ -249,7 +249,8 @@ export function evaluateStrategy(
             (reason.startsWith('not enough') ||
               reason === 'no sma' ||
               reason === 'no atr' ||
-              reason === 'no reference')
+              reason === 'no reference' ||
+              reason === 'no funding data')
           if (!groupFailures) groupFailures = []
           groupFailures.push({
             group_index: gi,
