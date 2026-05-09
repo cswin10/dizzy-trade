@@ -563,7 +563,6 @@ function buildSignalEvaluator(
       'strategy_definition_snapshot required for composable-source backtest',
     )
   }
-  let composableFundingDiagBudget = 3
   return (_pair, trailing, funding) => {
     const last = trailing[trailing.length - 1]!
     const ctx: EvaluationContext = {
@@ -576,18 +575,6 @@ function buildSignalEvaluator(
       // case funding-dependent conditions return passed=false with
       // a missing_data flag rather than triggering on stale data.
       funding,
-    }
-    if (composableFundingDiagBudget > 0) {
-      console.log(
-        `[funding-diag] composable evaluator received funding=${
-          funding === undefined
-            ? 'undefined'
-            : funding === null
-              ? 'null'
-              : String(funding)
-        } pair=${_pair} candleTs=${new Date(last.t).toISOString()}`,
-      )
-      composableFundingDiagBudget -= 1
     }
     const result = evaluateStrategy(definition, ctx)
     if (
@@ -751,11 +738,6 @@ export async function runBacktest(
   // funding data is missing, and any funding-dependent condition
   // surfaces missing_data on its own. Per-pair points are kept in
   // ascending-ts order so the inner-loop lookup can binary-search.
-  console.log(
-    `[funding-diag] engine.runBacktest config.pairs=${JSON.stringify(config.pairs)} ` +
-      `fetchStart=${fetchStart.toISOString()} ` +
-      `date_range_end=${config.date_range_end.toISOString()}`,
-  )
   const perPairFunding = new Map<string, FundingRatePoint[]>()
   for (const pair of config.pairs) {
     try {
@@ -765,11 +747,6 @@ export async function runBacktest(
         config.date_range_end,
       )
       perPairFunding.set(pair, points)
-      console.log(
-        `[funding-diag] engine loaded pair=${pair} pointCount=${points.length} ` +
-          `firstPointTs=${points[0]?.ts ? new Date(points[0].ts).toISOString() : 'none'} ` +
-          `lastPointTs=${points[points.length - 1]?.ts ? new Date(points[points.length - 1]!.ts).toISOString() : 'none'}`,
-      )
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       console.warn(
@@ -778,12 +755,6 @@ export async function runBacktest(
       perPairFunding.set(pair, [])
     }
   }
-  // Per-pair lookup-sampling counter. We log the funding lookup
-  // result for the first FUNDING_DIAG_SAMPLES candles per pair so
-  // we can see (a) whether perPairFunding.get(entry.pair) hits at
-  // all, (b) what fundingRateAt returns for a real candle ts.
-  const FUNDING_DIAG_SAMPLES = 3
-  const fundingDiagSeen = new Map<string, number>()
 
   const timeline = buildTimeline(perPairCandles)
 
@@ -848,33 +819,11 @@ export async function runBacktest(
     }
 
     const fundingPoints = perPairFunding.get(entry.pair) ?? []
-    const candleMs = entry.candle.candle_open_at.getTime()
-    const fundingPoint = fundingRateAt(fundingPoints, candleMs)
+    const fundingPoint = fundingRateAt(
+      fundingPoints,
+      entry.candle.candle_open_at.getTime(),
+    )
     const fundingValue = fundingPoint?.rate
-    const seen = fundingDiagSeen.get(entry.pair) ?? 0
-    if (seen < FUNDING_DIAG_SAMPLES) {
-      // Pick the two points adjacent to the candle so we can see
-      // exactly how far the nearest funding row is. Useful for
-      // catching off-by-tz / off-by-ms issues.
-      const before = fundingPoints
-        .slice()
-        .reverse()
-        .find((p) => p.ts <= candleMs)
-      const after = fundingPoints.find((p) => p.ts >= candleMs)
-      console.log(
-        `[funding-diag] candle pair=${entry.pair} ` +
-          `candleTs=${entry.candle.candle_open_at.toISOString()} ` +
-          `pointsAvailable=${fundingPoints.length} ` +
-          `lookupResult=${
-            fundingPoint
-              ? `ts=${new Date(fundingPoint.ts).toISOString()} rate=${fundingPoint.rate} distMs=${Math.abs(fundingPoint.ts - candleMs)}`
-              : 'null'
-          } ` +
-          `nearestBefore=${before ? `ts=${new Date(before.ts).toISOString()} distMs=${candleMs - before.ts}` : 'none'} ` +
-          `nearestAfter=${after ? `ts=${new Date(after.ts).toISOString()} distMs=${after.ts - candleMs}` : 'none'}`,
-      )
-      fundingDiagSeen.set(entry.pair, seen + 1)
-    }
     const signal = evaluateSignal(entry.pair, trailing, fundingValue)
     if (!signal) continue
 

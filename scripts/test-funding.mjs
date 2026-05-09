@@ -61,30 +61,23 @@ async function testHyperliquidLive() {
 }
 
 // Inlined copy of fundingRateAt from src/lib/backtest/funding.ts.
-// Mirroring it here keeps the smoke test self-contained while the
-// real implementation is type-checked by tsc.
-function fundingRateAt(points, candleMs, windowMs = 60 * 60 * 1000) {
+// Backward-only lookup with a 2h window; the test mirrors that
+// shape. Real implementation stays the source of truth, this is
+// a self-contained sanity check.
+function fundingRateAt(points, candleMs, windowMs = 2 * 60 * 60 * 1000) {
   if (points.length === 0) return null
   let lo = 0
-  let hi = points.length - 1
+  let hi = points.length
   while (lo < hi) {
     const mid = (lo + hi) >>> 1
-    if (points[mid].ts < candleMs) lo = mid + 1
+    if (points[mid].ts <= candleMs) lo = mid + 1
     else hi = mid
   }
-  let best = null
-  let bestDist = Infinity
-  for (const idx of [lo - 1, lo]) {
-    if (idx < 0 || idx >= points.length) continue
-    const candidate = points[idx]
-    const dist = Math.abs(candidate.ts - candleMs)
-    if (dist < bestDist) {
-      best = candidate
-      bestDist = dist
-    }
-  }
-  if (!best || bestDist > windowMs) return null
-  return best
+  const idx = lo - 1
+  if (idx < 0) return null
+  const candidate = points[idx]
+  if (candleMs - candidate.ts > windowMs) return null
+  return candidate
 }
 
 function testFundingLookup() {
@@ -93,6 +86,8 @@ function testFundingLookup() {
   for (let i = 0; i < 10; i++) {
     points.push({ ts: base + i * 3_600_000, rate: 0.0001 * i })
   }
+
+  // Exact hit at a funding ts: returns that funding row.
   const a = fundingRateAt(points, base + 3 * 3_600_000)
   if (!a || Math.abs(a.rate - 0.0003) > 1e-9) {
     fail('lookup exact', JSON.stringify(a))
@@ -100,20 +95,47 @@ function testFundingLookup() {
   }
   ok('lookup exact hit')
 
+  // 30 min after a funding ts: returns the prior row (still
+  // within 2h backward).
   const b = fundingRateAt(points, base + 3 * 3_600_000 + 30 * 60_000)
   if (!b || Math.abs(b.rate - 0.0003) > 1e-9) {
-    fail('lookup near', JSON.stringify(b))
+    fail('lookup +30min', JSON.stringify(b))
     return
   }
-  ok('lookup within +30min')
+  ok('lookup +30min returns prior funding row')
 
-  const c = fundingRateAt(points, base + 9 * 3_600_000 + 2 * 3_600_000)
+  // 1h30m past the last funding ts: still within 2h, picks last
+  // (no future row exists, so backward lookup must succeed).
+  const b2 = fundingRateAt(
+    points,
+    base + 9 * 3_600_000 + 90 * 60_000,
+  )
+  if (!b2 || Math.abs(b2.rate - 0.0009) > 1e-9) {
+    fail('lookup +1h30m past last', JSON.stringify(b2))
+    return
+  }
+  ok('lookup +1h30m past last point returns last funding (within 2h)')
+
+  // 2h01m past the last point: outside the window, null.
+  const c = fundingRateAt(
+    points,
+    base + 9 * 3_600_000 + (2 * 60 + 1) * 60_000,
+  )
   if (c !== null) {
     fail('lookup past window', `expected null, got ${JSON.stringify(c)}`)
     return
   }
-  ok('lookup past window returns null')
+  ok('lookup +2h01m past last point returns null')
 
+  // Before the first point: backward lookup has nothing, null.
+  const cBefore = fundingRateAt(points, base - 1)
+  if (cBefore !== null) {
+    fail('lookup before first', `expected null, got ${JSON.stringify(cBefore)}`)
+    return
+  }
+  ok('lookup before first point returns null (no lookahead)')
+
+  // Empty array.
   const d = fundingRateAt([], base)
   if (d !== null) {
     fail('lookup empty', 'expected null')

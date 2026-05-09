@@ -19,11 +19,15 @@ export type FundingRatePoint = {
 }
 
 // Maximum lookup window: how far the candle timestamp may be from
-// the nearest funding event before we treat the data as missing.
-// One hour matches Hyperliquid's hourly funding cadence: every
-// candle should land within an hour of a published rate. Backtests
-// that run on coins with 8h-cadence funding need to widen this.
-export const FUNDING_LOOKUP_WINDOW_MS = 60 * 60 * 1000
+// the most recent funding event before we treat the data as missing.
+// Hyperliquid pays funding once per hour, but the published `time`
+// does not always sit exactly on the candle's open timestamp (the
+// settlement event lands a few seconds / minutes after the hour
+// boundary, and longer-dated coins occasionally drop a tick). Two
+// hours absorbs that drift while still flagging real gaps in the
+// stored history. Backtests on coins with 8h-cadence funding need
+// a wider window.
+export const FUNDING_LOOKUP_WINDOW_MS = 2 * 60 * 60 * 1000
 
 // Pulls every funding-rate row for `coin` in [startAt, endAt].
 // Sorted ascending by ts. Returned in ms so the engine can compare
@@ -35,11 +39,6 @@ export async function loadFundingRates(
   endAt: Date,
 ): Promise<FundingRatePoint[]> {
   const service = createServiceClient()
-  console.log(
-    `[funding-diag] loadFundingRates query coin=${JSON.stringify(coin)} ` +
-      `coinLen=${coin.length} ` +
-      `from=${startAt.toISOString()} to=${endAt.toISOString()}`,
-  )
   const { data, error } = await service
     .from('funding_rates')
     .select('ts, rate, premium, interval_hours')
@@ -47,49 +46,8 @@ export async function loadFundingRates(
     .gte('ts', startAt.toISOString())
     .lte('ts', endAt.toISOString())
     .order('ts', { ascending: true })
-  if (error) {
-    console.error(
-      `[funding-diag] loadFundingRates ERROR coin=${coin} message=${error.message}`,
-    )
-    throw new Error(`funding rate load failed: ${error.message}`)
-  }
-  const rows = data ?? []
-  console.log(
-    `[funding-diag] loadFundingRates result coin=${coin} rowCount=${rows.length} ` +
-      `firstRowTs=${rows[0]?.ts ?? 'none'} ` +
-      `lastRowTs=${rows[rows.length - 1]?.ts ?? 'none'}`,
-  )
-  // Probe: if the filtered query returned zero, try an unfiltered
-  // count for the same coin so we can see whether the issue is the
-  // coin name (zero rows for any window) or the time window.
-  if (rows.length === 0) {
-    const probe = await service
-      .from('funding_rates')
-      .select('ts, coin', { count: 'exact', head: false })
-      .eq('coin', coin)
-      .order('ts', { ascending: false })
-      .limit(1)
-    console.log(
-      `[funding-diag] loadFundingRates probe coin=${coin} ` +
-        `unfilteredCount=${probe.count ?? 'null'} ` +
-        `latestRow=${JSON.stringify(probe.data?.[0] ?? null)} ` +
-        `probeError=${probe.error?.message ?? 'none'}`,
-    )
-    // Second probe: distinct coin names actually in the table.
-    const distinctProbe = await service
-      .from('funding_rates')
-      .select('coin')
-      .order('coin', { ascending: true })
-      .limit(50)
-    const distinctCoins = Array.from(
-      new Set((distinctProbe.data ?? []).map((r) => r.coin as string)),
-    )
-    console.log(
-      `[funding-diag] loadFundingRates distinct-coins-sample=${JSON.stringify(distinctCoins)} ` +
-        `distinctProbeError=${distinctProbe.error?.message ?? 'none'}`,
-    )
-  }
-  return rows.map((row) => ({
+  if (error) throw new Error(`funding rate load failed: ${error.message}`)
+  return (data ?? []).map((row) => ({
     ts: new Date(row.ts as string).getTime(),
     rate: Number(row.rate),
     premium: row.premium === null ? null : Number(row.premium),
@@ -97,40 +55,35 @@ export async function loadFundingRates(
   }))
 }
 
-// Binary-searches for the funding rate whose timestamp is closest
-// to `candleMs` and within ±FUNDING_LOOKUP_WINDOW_MS of it. Returns
-// null if nothing within that window exists. Caller treats null as
-// "missing data" rather than "rate is zero".
+// Binary-searches for the most recent funding rate at or before
+// `candleMs`, within `windowMs` of it. Backward-only by design:
+// a backtest evaluating candle N must not see funding that was
+// published at or after candle N's open, that would be lookahead.
+// Returns null when nothing on or before the candle exists, or
+// when the latest such rate is older than the window.
 //
-// `points` MUST be sorted ascending by ts (loadFundingRates guarantees
-// this); we don't re-sort here so per-candle lookups stay O(log n).
+// `points` MUST be sorted ascending by ts (loadFundingRates
+// guarantees this); we don't re-sort here so per-candle lookups
+// stay O(log n).
 export function fundingRateAt(
   points: FundingRatePoint[],
   candleMs: number,
   windowMs = FUNDING_LOOKUP_WINDOW_MS,
 ): FundingRatePoint | null {
   if (points.length === 0) return null
+  // Find the largest index whose ts <= candleMs. Standard
+  // upper-bound binary search: lo lands one past the last
+  // qualifying entry, so the answer is lo - 1.
   let lo = 0
-  let hi = points.length - 1
+  let hi = points.length
   while (lo < hi) {
     const mid = (lo + hi) >>> 1
-    if (points[mid]!.ts < candleMs) lo = mid + 1
+    if (points[mid]!.ts <= candleMs) lo = mid + 1
     else hi = mid
   }
-  // `lo` now points at the first entry with ts >= candleMs (or the
-  // last entry if all are < candleMs). Pick whichever of (lo, lo-1)
-  // is closer.
-  let best: FundingRatePoint | null = null
-  let bestDist = Infinity
-  for (const idx of [lo - 1, lo]) {
-    if (idx < 0 || idx >= points.length) continue
-    const candidate = points[idx]!
-    const dist = Math.abs(candidate.ts - candleMs)
-    if (dist < bestDist) {
-      best = candidate
-      bestDist = dist
-    }
-  }
-  if (!best || bestDist > windowMs) return null
-  return best
+  const idx = lo - 1
+  if (idx < 0) return null
+  const candidate = points[idx]!
+  if (candleMs - candidate.ts > windowMs) return null
+  return candidate
 }
