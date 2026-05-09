@@ -747,6 +747,12 @@ export async function runBacktest(
         config.date_range_end,
       )
       perPairFunding.set(pair, points)
+      console.log(
+        `[backtest:funding] pair=${JSON.stringify(pair)} ` +
+          `loaded=${points.length} ` +
+          `firstTs=${points[0]?.ts ? new Date(points[0].ts).toISOString() : 'none'} ` +
+          `lastTs=${points[points.length - 1]?.ts ? new Date(points[points.length - 1]!.ts).toISOString() : 'none'}`,
+      )
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       console.warn(
@@ -755,6 +761,13 @@ export async function runBacktest(
       perPairFunding.set(pair, [])
     }
   }
+  // First-lookup-per-pair diagnostic. Captures whichever exit
+  // branch fundingRateAt took on the first signal-eligible candle,
+  // which is enough to tell us whether the points array is empty,
+  // misaligned past the window, or before any funding row exists.
+  // Intentionally limited to one log line per pair to avoid the
+  // 26k-line spam that per-candle logging would produce.
+  const fundingDiagFiredFor = new Set<string>()
 
   const timeline = buildTimeline(perPairCandles)
 
@@ -819,9 +832,25 @@ export async function runBacktest(
     }
 
     const fundingPoints = perPairFunding.get(entry.pair) ?? []
+    const candleMs = entry.candle.candle_open_at.getTime()
+    const wantDiag = !fundingDiagFiredFor.has(entry.pair)
     const fundingPoint = fundingRateAt(
       fundingPoints,
-      entry.candle.candle_open_at.getTime(),
+      candleMs,
+      undefined,
+      wantDiag
+        ? (info) => {
+            fundingDiagFiredFor.add(entry.pair)
+            console.log(
+              `[backtest:funding-lookup] pair=${JSON.stringify(entry.pair)} ` +
+                `candleTs=${entry.candle.candle_open_at.toISOString()} ` +
+                `(ms=${candleMs}) ` +
+                `pointsAvailable=${fundingPoints.length} ` +
+                `mapHasKey=${perPairFunding.has(entry.pair)} ` +
+                `result=${JSON.stringify(info)}`,
+            )
+          }
+        : undefined,
     )
     const fundingValue = fundingPoint?.rate
     const signal = evaluateSignal(entry.pair, trailing, fundingValue)

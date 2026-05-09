@@ -65,12 +65,34 @@ export async function loadFundingRates(
 // `points` MUST be sorted ascending by ts (loadFundingRates
 // guarantees this); we don't re-sort here so per-candle lookups
 // stay O(log n).
+//
+// Diagnostics: when `diag` is supplied the function calls it once
+// per call with a structured reason so a caller (e.g. the engine)
+// can log a small sample of failures without forking the lookup
+// logic. The diag callback is intentionally optional to keep the
+// hot-path branchless when nothing is observing.
+export type FundingLookupDiag =
+  | { reason: 'no_points' }
+  | { reason: 'no_point_at_or_before'; firstPointTs: number; candleMs: number }
+  | {
+      reason: 'window_exceeded'
+      candidateTs: number
+      candleMs: number
+      distMs: number
+      windowMs: number
+    }
+  | { reason: 'hit'; candidateTs: number; candleMs: number; distMs: number }
+
 export function fundingRateAt(
   points: FundingRatePoint[],
   candleMs: number,
   windowMs = FUNDING_LOOKUP_WINDOW_MS,
+  diag?: (info: FundingLookupDiag) => void,
 ): FundingRatePoint | null {
-  if (points.length === 0) return null
+  if (points.length === 0) {
+    diag?.({ reason: 'no_points' })
+    return null
+  }
   // Find the largest index whose ts <= candleMs. Standard
   // upper-bound binary search: lo lands one past the last
   // qualifying entry, so the answer is lo - 1.
@@ -82,8 +104,31 @@ export function fundingRateAt(
     else hi = mid
   }
   const idx = lo - 1
-  if (idx < 0) return null
+  if (idx < 0) {
+    diag?.({
+      reason: 'no_point_at_or_before',
+      firstPointTs: points[0]!.ts,
+      candleMs,
+    })
+    return null
+  }
   const candidate = points[idx]!
-  if (candleMs - candidate.ts > windowMs) return null
+  const distMs = candleMs - candidate.ts
+  if (distMs > windowMs) {
+    diag?.({
+      reason: 'window_exceeded',
+      candidateTs: candidate.ts,
+      candleMs,
+      distMs,
+      windowMs,
+    })
+    return null
+  }
+  diag?.({
+    reason: 'hit',
+    candidateTs: candidate.ts,
+    candleMs,
+    distMs,
+  })
   return candidate
 }
