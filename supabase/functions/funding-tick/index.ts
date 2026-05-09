@@ -135,6 +135,8 @@ async function fetchFundingHistory(
         advanced = true
       }
     }
+    // Hyperliquid caps fundingHistory at HL_PAGE_LIMIT entries per
+    // call; a short page means we have walked the whole window.
     if (page.length < HL_PAGE_LIMIT) break
     if (!advanced) break
     if (cursor >= endTimeMs) break
