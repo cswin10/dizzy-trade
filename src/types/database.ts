@@ -1456,6 +1456,36 @@ export type Database = {
         }
         Relationships: []
       }
+      funding_rates: {
+        Row: {
+          id: string
+          coin: string
+          ts: string
+          rate: number
+          premium: number | null
+          interval_hours: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          coin: string
+          ts: string
+          rate: number
+          premium?: number | null
+          interval_hours?: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          coin?: string
+          ts?: string
+          rate?: number
+          premium?: number | null
+          interval_hours?: number
+          created_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       daily_pnl: {

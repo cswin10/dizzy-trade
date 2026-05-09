@@ -555,7 +555,7 @@ export const CONDITION_DESCRIPTORS: ConditionUIDescriptor[] = [
     category: 'funding',
     title: 'Funding threshold',
     description:
-      'Trigger when funding crosses a threshold (live scanner only; backtests skip)',
+      'Trigger when funding crosses a threshold. Backtests look up the prevailing funding rate for the candle from the funding_rates table; condition skips with missing_data if no rate is within ±1h of the candle.',
     parameters: [
       comparator,
       num('value', 'Funding rate', {

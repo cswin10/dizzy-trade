@@ -27,6 +27,11 @@ import type {
 
 import { ensureCandles } from './candles'
 import {
+  fundingRateAt,
+  loadFundingRates,
+  type FundingRatePoint,
+} from './funding'
+import {
   FRAMEWORK_WARMUP_CANDLES,
   TIMEFRAME_MS,
   TIMEOUT_CANDLES,
@@ -495,7 +500,11 @@ type EngineSignal = {
 // 100k times — negligible compared to the indicator math itself.
 type FailureRecorder = (conditionType: string, insufficientData: boolean) => void
 
-type SignalEvaluator = (pair: string, trailing: Candle[]) => EngineSignal | null
+type SignalEvaluator = (
+  pair: string,
+  trailing: Candle[],
+  funding: number | undefined,
+) => EngineSignal | null
 
 function buildSignalEvaluator(
   config: BacktestConfig,
@@ -510,12 +519,12 @@ function buildSignalEvaluator(
       throw new Error(`Unknown framework: ${config.framework_id}`)
     }
     const thresholds = config.framework_thresholds ?? {}
-    return (pair, trailing) => {
+    return (pair, trailing, funding) => {
       const last = trailing[trailing.length - 1]!
       const snapshot: MarketSnapshot = {
         symbol: pair,
         markPrice: last.c,
-        funding: 0,
+        funding: funding ?? 0,
         openInterest: 0,
         dayNotionalVolume: 0,
         candles: trailing,
@@ -554,16 +563,18 @@ function buildSignalEvaluator(
       'strategy_definition_snapshot required for composable-source backtest',
     )
   }
-  return (_pair, trailing) => {
+  return (_pair, trailing, funding) => {
     const last = trailing[trailing.length - 1]!
     const ctx: EvaluationContext = {
       candles: trailing,
       currentCandle: last,
       currentPrice: last.c,
-      // Backtest data does not carry historical funding yet, so
-      // funding-dependent conditions return passed=false with a
-      // missing_data flag rather than triggering on stale data.
-      funding: undefined,
+      // Funding is hydrated by the engine from the funding_rates
+      // table for the candle's timestamp. Undefined when no rate
+      // landed within the lookup window for this candle, in which
+      // case funding-dependent conditions return passed=false with
+      // a missing_data flag rather than triggering on stale data.
+      funding,
     }
     const result = evaluateStrategy(definition, ctx)
     if (
@@ -722,6 +733,29 @@ export async function runBacktest(
     perPairDiag[pair]!.candles_loaded = candles.length
   }
 
+  // Load funding rates for every pair across the same window. Read
+  // failures are non-fatal: we still want the engine to run when
+  // funding data is missing, and any funding-dependent condition
+  // surfaces missing_data on its own. Per-pair points are kept in
+  // ascending-ts order so the inner-loop lookup can binary-search.
+  const perPairFunding = new Map<string, FundingRatePoint[]>()
+  for (const pair of config.pairs) {
+    try {
+      const points = await loadFundingRates(
+        pair,
+        fetchStart,
+        config.date_range_end,
+      )
+      perPairFunding.set(pair, points)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.warn(
+        `[backtest] funding load failed for ${pair}: ${message}; continuing without funding data`,
+      )
+      perPairFunding.set(pair, [])
+    }
+  }
+
   const timeline = buildTimeline(perPairCandles)
 
   const state: SimState = {
@@ -784,7 +818,13 @@ export async function runBacktest(
       if (evaluatesShort) pairDiag.short_evaluations += 1
     }
 
-    const signal = evaluateSignal(entry.pair, trailing)
+    const fundingPoints = perPairFunding.get(entry.pair) ?? []
+    const fundingPoint = fundingRateAt(
+      fundingPoints,
+      entry.candle.candle_open_at.getTime(),
+    )
+    const fundingValue = fundingPoint?.rate
+    const signal = evaluateSignal(entry.pair, trailing, fundingValue)
     if (!signal) continue
 
     state.signals_total += 1

@@ -18,19 +18,39 @@ export const fundingThresholdSchema: z.ZodType<Condition> = z.object({
 
 registerConditionSchema(TYPE, fundingThresholdSchema)
 
+// Debug log throttle. The condition runs once per candle per pair
+// per active strategy, so a 1y/1h backtest with 3 pairs would emit
+// ~26k log lines if every missing-data hit logged. Sampling keeps
+// the signal that data is missing while keeping the log volume sane.
+const MISSING_LOG_SAMPLE = 500
+let missingHits = 0
+
 registerConditionEvaluator(TYPE, (condition, context) => {
   const params = condition.params as {
     comparator: 'lt' | 'lte' | 'gt' | 'gte'
     value: number
   }
-  // Backtest data does not include historical funding for now, so
-  // any strategy that depends on this condition simply will not
-  // trigger in backtest mode. Surface that explicitly so the
-  // operator can spot it in the conditions_at_signal jsonb.
+  // In backtest mode the engine hydrates context.funding from the
+  // funding_rates table for the candle's timestamp; if no rate was
+  // found within the lookup window the field is undefined here.
+  // In live mode the scanner sets it from the live market context,
+  // so it is always defined unless market data fetch failed.
+  // Either way, undefined -> emit insufficient_data so the
+  // evaluator's diagnostics can attribute the failure correctly.
   if (context.funding === undefined || context.funding === null) {
+    missingHits++
+    if (missingHits === 1 || missingHits % MISSING_LOG_SAMPLE === 0) {
+      console.debug(
+        `[funding_threshold] no funding rate within lookup window (hit ${missingHits})`,
+      )
+    }
     return {
       passed: false,
-      values: { value: null, missing_data: true },
+      values: {
+        value: null,
+        missing_data: true,
+        reason: 'no funding data',
+      },
     }
   }
   return {
